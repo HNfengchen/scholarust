@@ -82,6 +82,12 @@ impl ModelManager {
         format!("http://127.0.0.1:{PORT}")
     }
 
+    pub fn layout_model_path(&self) -> PathBuf {
+        self.models_dir
+            .join("layout")
+            .join("doclayout_yolo_docstructbench_imgsz1024.onnx")
+    }
+
     pub async fn status(&self) -> ModelStatus {
         let alive = {
             let mut child = self.child.lock().await;

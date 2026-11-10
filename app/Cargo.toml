@@ -20,6 +20,7 @@ tokio.workspace = true
 anyhow.workspace = true
 reqwest.workspace = true
 async-trait.workspace = true
+base64 = "0.22"
 scholarust-core.workspace = true
 scholarust-translate.workspace = true
 scholarust-plugin-host.workspace = true

@@ -1,4 +1,5 @@
 use crate::state::{AppState, Settings};
+use base64::Engine;
 use scholarust_core::{markdown, DocumentInfo};
 use scholarust_plugin_host::{PluginHost, PluginInfo};
 use scholarust_translate::{ServiceInfo, TranslateResult};
@@ -311,4 +312,103 @@ pub async fn start_model(state: State<'_, AppState>) -> Result<crate::model::Mod
 pub async fn stop_model(state: State<'_, AppState>) -> Result<crate::model::ModelStatus, String> {
     state.model.stop().await;
     Ok(state.model.status().await)
+}
+
+#[derive(Serialize)]
+pub struct LayoutModelInfo {
+    pub path: String,
+    pub exists: bool,
+}
+
+#[tauri::command]
+pub async fn layout_model_info(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<LayoutModelInfo, String> {
+    let path = state.model.layout_model_path();
+    let exists = path.is_file();
+    if exists {
+        app.asset_protocol_scope().allow_file(&path).map_err(err)?;
+    }
+    Ok(LayoutModelInfo {
+        path: path.to_string_lossy().into_owned(),
+        exists,
+    })
+}
+
+pub fn resolve_document_image_path(base: &Path, src: &str) -> Result<std::path::PathBuf, String> {
+    let base = base.canonicalize().map_err(|e| e.to_string())?;
+    let path = base.join(src).canonicalize().map_err(|e| e.to_string())?;
+    if !path.starts_with(&base) {
+        return Err("image path escapes document directory".into());
+    }
+    Ok(path)
+}
+
+fn image_mime(ext: &str) -> &'static str {
+    match ext.to_ascii_lowercase().as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        _ => "application/octet-stream",
+    }
+}
+
+#[tauri::command]
+pub async fn read_document_image(
+    state: State<'_, AppState>,
+    id: String,
+    src: String,
+) -> Result<String, String> {
+    let doc_path = {
+        let library = state.library.lock().await;
+        let doc = library
+            .get(&id)
+            .ok_or_else(|| format!("document not found: {id}"))?;
+        doc.path.clone()
+    };
+    let base = Path::new(&doc_path)
+        .parent()
+        .ok_or_else(|| format!("document has no parent directory: {doc_path}"))?;
+    let path = resolve_document_image_path(base, &src)?;
+    let bytes = std::fs::read(&path).map_err(err)?;
+    let mime = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(image_mime)
+        .unwrap_or("application/octet-stream");
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_document_image_path;
+
+    #[test]
+    fn resolve_document_image_path_accepts_child() {
+        let root = std::env::temp_dir().join("scholarust-img-ok");
+        let doc_dir = root.join("doc");
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::write(doc_dir.join("fig.png"), b"x").unwrap();
+        let path = resolve_document_image_path(&doc_dir, "fig.png").unwrap();
+        assert_eq!(path.file_name().unwrap(), "fig.png");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_document_image_path_rejects_escape() {
+        let root = std::env::temp_dir().join("scholarust-img-escape");
+        let doc_dir = root.join("doc");
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::write(root.join("secret.png"), b"x").unwrap();
+        let err = resolve_document_image_path(&doc_dir, "../secret.png").unwrap_err();
+        assert!(err.contains("escapes"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

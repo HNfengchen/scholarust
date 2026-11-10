@@ -23,3 +23,4 @@ async-trait.workspace = true
 scholarust-core.workspace = true
 scholarust-translate.workspace = true
 scholarust-plugin-host.workspace = true
+base64 = "0.22"

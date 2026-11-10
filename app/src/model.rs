@@ -69,6 +69,12 @@ fn find_gguf(models_dir: &Path) -> Option<PathBuf> {
 }
 
 impl ModelManager {
+    pub fn layout_model_path(&self) -> PathBuf {
+        self.models_dir
+            .join("layout")
+            .join("doclayout_yolo_docstructbench_imgsz1024.onnx")
+    }
+
     pub fn new(models_dir: PathBuf) -> Self {
         Self {
             models_dir,

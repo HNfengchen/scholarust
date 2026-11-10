@@ -70,6 +70,14 @@ FP8 原始权重（可选，研究用）：`https://hf-mirror.com/tencent/Hy-MT2
 
 **效率优化**（`app/src/model.rs`）：`-ngl 99` 全量 GPU offload、`--flash-attn on`、16K 上下文、`--parallel 4` 连续批处理、常驻暖服务（启动一次反复使用）、段落级并发请求。实测 RTX 4070 Laptop：单段学术文本 1.9s（约 116 tok/s），4 段并发合计 1.9s。
 
+## 版面模型（阅读模式）
+
+PDF 阅读模式使用 DocLayout-YOLO 识别版面。未放模型时会回退到简化抽取。
+
+    mkdir -p models/layout
+    curl -L -o models/layout/doclayout_yolo_docstructbench_imgsz1024.onnx \
+      https://hf-mirror.com/wybxc/DocLayout-YOLO-DocStructBench-onnx/resolve/main/doclayout_yolo_docstructbench_imgsz1024.onnx
+
 ## 插件（统一 ZIP 包格式）
 
 **导入格式固定为 ZIP 插件包**：压缩包根部（或单层根目录内）包含 `plugin.json` 与 `.wasm` 入口。在右栏「扩展」面板点「导入插件包（.zip）」选择文件即可，无需重启；同一面板可启用/停用、卸载，翻译服务下拉实时更新。仓库自带示例包 `plugins/example-translate.zip` 可直接导入体验。

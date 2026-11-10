@@ -73,6 +73,8 @@ pub fn run() {
             commands::model_status,
             commands::start_model,
             commands::stop_model,
+            commands::layout_model_info,
+            commands::read_document_image,
         ])
         .build(tauri::generate_context!())
         .expect("error while building scholarust");

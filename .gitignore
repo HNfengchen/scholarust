@@ -20,6 +20,9 @@ pnpm-debug.log*
 .env
 .env.*
 
+# sdd scratch workspace
+/.superpowers/
+
 # editor / OS
 .vscode/
 .idea/

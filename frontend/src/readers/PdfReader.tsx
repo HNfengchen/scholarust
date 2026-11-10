@@ -5,8 +5,11 @@ import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { extractPdfParagraphs } from "../paragraphs";
 import { extractPdfStructure } from "../structure";
-import type { StructureExtractor } from "../structure";
+import type { DocumentStructure, ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
+import * as api from "../api";
+import { convertFileSrc } from "../api";
+import { extractPdfStructureWithLayout } from "../layout/pdfLayout";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -14,10 +17,11 @@ interface Props {
   url: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
+  readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
   onError: (message: string) => void;
 }
 
-export default function PdfReader({ url, extractorRef, structureRef, onError }: Props) {
+export default function PdfReader({ url, extractorRef, structureRef, readingStructureRef, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("正在加载 PDF…");
 
@@ -42,6 +46,31 @@ export default function PdfReader({ url, extractorRef, structureRef, onError }: 
       structureRef.current = () => {
         structurePromise ??= extractPdfStructure(doc);
         return structurePromise;
+      };
+      let readingPromise: Promise<DocumentStructure> | null = null;
+      readingStructureRef.current = (onProgress) => {
+        readingPromise ??= (async () => {
+          try {
+            const info = await api.layoutModelInfo();
+            if (!info.exists) {
+              return {
+                ...(await extractPdfStructure(doc)),
+                notice: `未找到版面模型，已使用简化抽取：${info.path}`,
+              };
+            }
+            return await extractPdfStructureWithLayout(doc, {
+              modelUrl: convertFileSrc(info.path),
+              onProgress,
+            });
+          } catch (err) {
+            console.warn("layout extraction failed", err);
+            return {
+              ...(await extractPdfStructure(doc)),
+              notice: "版面模型运行失败，已使用简化抽取",
+            };
+          }
+        })();
+        return readingPromise;
       };
       const available = Math.max(container.clientWidth - 48, 320);
       for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
@@ -96,10 +125,11 @@ export default function PdfReader({ url, extractorRef, structureRef, onError }: 
       cancelled = true;
       extractorRef.current = null;
       structureRef.current = null;
+      readingStructureRef.current = null;
       container.replaceChildren();
       void loadingTask?.destroy();
     };
-  }, [url, extractorRef, structureRef, onError]);
+  }, [url, extractorRef, structureRef, readingStructureRef, onError]);
 
   return (
     <div className="pdf-reader">

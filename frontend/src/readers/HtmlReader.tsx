@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import mammoth from "mammoth";
 import { extractHtmlParagraphs } from "../paragraphs";
 import { extractHtmlStructure } from "../structure";
-import type { StructureExtractor } from "../structure";
+import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
 
 interface Props {
@@ -11,10 +11,11 @@ interface Props {
   docxUrl: string | null;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
+  readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
   onError: (message: string) => void;
 }
 
-export default function HtmlReader({ html, docxUrl, extractorRef, structureRef, onError }: Props) {
+export default function HtmlReader({ html, docxUrl, extractorRef, structureRef, readingStructureRef, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,6 +28,7 @@ export default function HtmlReader({ html, docxUrl, extractorRef, structureRef, 
     const register = () => {
       extractorRef.current = async () => extractHtmlParagraphs(container);
       structureRef.current = async () => extractHtmlStructure(container);
+      readingStructureRef.current = structureRef.current;
     };
 
     if (docxUrl) {
@@ -56,8 +58,9 @@ export default function HtmlReader({ html, docxUrl, extractorRef, structureRef, 
       cancelled = true;
       extractorRef.current = null;
       structureRef.current = null;
+      readingStructureRef.current = null;
     };
-  }, [html, docxUrl, extractorRef, structureRef, onError]);
+  }, [html, docxUrl, extractorRef, structureRef, readingStructureRef, onError]);
 
   return (
     <div className="html-reader-wrap">

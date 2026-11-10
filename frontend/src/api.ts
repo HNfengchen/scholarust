@@ -3,6 +3,7 @@ import type {
   Collection,
   DocumentContent,
   DocumentInfo,
+  LayoutModelInfo,
   LibraryData,
   ModelStatus,
   PluginInfo,
@@ -55,6 +56,14 @@ export function startModel(): Promise<ModelStatus> {
 
 export function stopModel(): Promise<void> {
   return invoke<void>("stop_model");
+}
+
+export function layoutModelInfo(): Promise<LayoutModelInfo> {
+  return invoke<LayoutModelInfo>("layout_model_info");
+}
+
+export function readDocumentImage(id: string, src: string): Promise<string> {
+  return invoke<string>("read_document_image", { id, src });
 }
 
 export function openDocument(path: string): Promise<DocumentInfo> {

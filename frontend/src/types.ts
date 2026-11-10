@@ -25,6 +25,11 @@ export interface ModelStatus {
   detail: string;
 }
 
+export interface LayoutModelInfo {
+  path: string;
+  exists: boolean;
+}
+
 export interface ServiceInfo {
   id: string;
   name: string;

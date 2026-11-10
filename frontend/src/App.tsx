@@ -9,7 +9,7 @@ import "./panels";
 import type { PanelContext } from "./panels/registry";
 import * as api from "./api";
 import { CONTENT_KINDS } from "./structure";
-import type { DocumentStructure, StructuredBlock, StructureExtractor } from "./structure";
+import type { DocumentStructure, ReadingStructureExtractor, StructuredBlock, StructureExtractor } from "./structure";
 import type {
   BlockTranslation,
   Collection,
@@ -54,6 +54,7 @@ export default function App() {
   const [mode, setMode] = useState<ViewMode>("original");
   const [structure, setStructure] = useState<DocumentStructure | null>(null);
   const [structureLoading, setStructureLoading] = useState(false);
+  const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(null);
   const [blockTranslations, setBlockTranslations] = useState<Record<number, BlockTranslation>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [selection, setSelection] = useState<SelectionTranslation | null>(null);
@@ -64,6 +65,7 @@ export default function App() {
 
   const extractorRef = useRef<ParagraphExtractor | null>(null);
   const structureRef = useRef<StructureExtractor | null>(null);
+  const readingStructureRef = useRef<ReadingStructureExtractor | null>(null);
   const readerHostRef = useRef<HTMLDivElement>(null);
   const readingCache = useRef(new Map<string, ReadingCache>());
   const activeDocIdRef = useRef<string | null>(null);
@@ -131,6 +133,7 @@ export default function App() {
     setContent(null);
     setMode("original");
     setStructure(null);
+    setExtractProgress(null);
     setBlockTranslations({});
     setContentLoading(true);
     api
@@ -301,20 +304,27 @@ export default function App() {
     if (cached) {
       setStructure(cached.structure);
       setBlockTranslations(cached.translations);
+      setExtractProgress(null);
       setMode("reading");
       return;
     }
-    const extract = structureRef.current;
-    if (!extract) {
+    const extract = readingStructureRef.current;
+    const fallback = structureRef.current;
+    if (!extract && !fallback) {
       showError("阅读器尚未就绪，无法解析文档结构");
       return;
     }
     setStructureLoading(true);
     setStructure(null);
+    setExtractProgress(null);
     setBlockTranslations({});
     setMode("reading");
     try {
-      const parsed = await extract();
+      const parsed = await (extract
+        ? extract((done, total) => {
+            if (activeDocIdRef.current === doc.id) setExtractProgress({ done, total });
+          })
+        : fallback!());
       if (activeDocIdRef.current !== doc.id) return;
       if (parsed.blocks.length === 0 && !parsed.notice) throw new Error("未解析到可阅读的内容块");
       readingCache.current.set(doc.id, { structure: parsed, translations: {} });
@@ -325,7 +335,10 @@ export default function App() {
         setMode("original");
       }
     } finally {
-      if (activeDocIdRef.current === doc.id) setStructureLoading(false);
+      if (activeDocIdRef.current === doc.id) {
+        setStructureLoading(false);
+        setExtractProgress(null);
+      }
     }
   }, [activeDoc, structureLoading, showError]);
 
@@ -554,6 +567,7 @@ export default function App() {
                     content={content}
                     extractorRef={extractorRef}
                     structureRef={structureRef}
+                    readingStructureRef={readingStructureRef}
                     onError={showError}
                     onSelection={handleSelectionText}
                   />
@@ -563,7 +577,7 @@ export default function App() {
                     title={activeDoc.title}
                     structure={structure}
                     loading={structureLoading}
-                    extractProgress={null}
+                    extractProgress={extractProgress}
                     translations={blockTranslations}
                     batchRunning={batchRunning}
                     onTranslateBlock={(block) => void translateBlock(block)}

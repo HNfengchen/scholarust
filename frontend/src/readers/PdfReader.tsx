@@ -88,9 +88,10 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
             });
           } catch (err) {
             console.warn("layout extraction failed", err);
+            const detail = err instanceof Error ? err.message : String(err);
             return {
               ...(await extractPdfStructure(doc)),
-              notice: "版面模型运行失败，已使用简化抽取",
+              notice: `版面模型运行失败，已使用简化抽取（${detail}）`,
             };
           }
         })();

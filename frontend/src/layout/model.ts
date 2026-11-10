@@ -9,7 +9,10 @@ export function loadLayoutSession(modelUrl: string): Promise<ort.InferenceSessio
   sessionPromise ??= (async () => {
     ort.env.wasm.wasmPaths = "/ort/";
     ort.env.wasm.numThreads = 1;
-    ort.env.wasm.proxy = true;
+    // 生产构建会把 onnxruntime-web 打进主应用 chunk；proxy 模式用 import.meta.url
+    // 作为 worker 脚本，等于把整个应用加载进 worker（无 document/window）而崩溃。
+    // 关闭 proxy 走主线程单线程推理，不创建 worker，最稳妥。
+    ort.env.wasm.proxy = false;
     const response = await fetch(modelUrl);
     if (!response.ok) throw new Error(`模型下载失败：HTTP ${response.status}`);
     const bytes = await response.arrayBuffer();

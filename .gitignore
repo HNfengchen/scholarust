@@ -1,0 +1,29 @@
+/target
+**/node_modules
+/frontend/dist
+/app/gen
+/plugins/*/target
+Cargo.lock
+!app/Cargo.lock
+
+# downloaded model weights and inference engine (re-download per README)
+/models/
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# env / secrets
+.env
+.env.*
+
+# editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

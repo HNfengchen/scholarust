@@ -1,0 +1,6 @@
+{
+  "name": "术语词条例句",
+  "version": "0.1.0",
+  "description": "示例插件：用内置术语表把英文学术词汇替换为中文，演示 WASM 翻译服务扩展",
+  "entry": "example_translate.wasm"
+}

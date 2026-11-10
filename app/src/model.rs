@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
@@ -39,40 +40,72 @@ pub fn resolve_models_dir(data_dir: &Path) -> PathBuf {
     }
     candidates.push(data_dir.join("models"));
     for candidate in &candidates {
-        if candidate.join("llama.cpp").is_dir() || candidate.join("hy-mt2-1.8b-gguf").is_dir() {
+        if candidate.join("llama.cpp").is_dir()
+            || candidate.join("layout").is_dir()
+            || candidate.join("llm").is_dir()
+            || find_gguf(candidate).is_some()
+        {
             return candidate.clone();
         }
     }
     candidates.into_iter().next().unwrap_or_else(|| PathBuf::from("models"))
 }
 
-fn find_gguf(models_dir: &Path) -> Option<PathBuf> {
-    let dir = models_dir.join("hy-mt2-1.8b-gguf");
-    for name in [
-        "Hy-MT2-1.8B-Q8_0.gguf",
-        "Hy-MT2-1.8B-Q6_K.gguf",
-        "Hy-MT2-1.8B-Q4_K_M.gguf",
-    ] {
-        let path = dir.join(name);
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    let entries = std::fs::read_dir(&dir).ok()?;
+/// Recursively collects files whose extension matches `ext` (case-insensitive),
+/// keeping the most recently modified one. Model files are discovered by
+/// scanning rather than hard-coded names, so any GGUF / ONNX can be dropped in.
+fn scan_newest(dir: &Path, ext: &str, recursive: bool, best: &mut Option<(SystemTime, PathBuf)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("gguf") {
-            return Some(path);
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            if recursive {
+                scan_newest(&path, ext, true, best);
+            }
+            continue;
+        }
+        let matches = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case(ext))
+            .unwrap_or(false);
+        if !matches {
+            continue;
+        }
+        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        let replace = match best {
+            Some((current, _)) => modified > *current,
+            None => true,
+        };
+        if replace {
+            *best = Some((modified, path));
         }
     }
-    None
+}
+
+fn newest_with_ext(dir: &Path, ext: &str, recursive: bool) -> Option<PathBuf> {
+    let mut best = None;
+    scan_newest(dir, ext, recursive, &mut best);
+    best.map(|(_, path)| path)
+}
+
+/// Prefers the dedicated `llm/` drop folder; falls back to scanning the whole
+/// models tree so existing model subfolders keep working. When several GGUF
+/// files exist, the most recently modified one wins.
+fn find_gguf(models_dir: &Path) -> Option<PathBuf> {
+    newest_with_ext(&models_dir.join("llm"), "gguf", true)
+        .or_else(|| newest_with_ext(models_dir, "gguf", true))
 }
 
 impl ModelManager {
     pub fn layout_model_path(&self) -> PathBuf {
-        self.models_dir
-            .join("layout")
-            .join("doclayout_yolo_docstructbench_imgsz1024.onnx")
+        let dir = self.models_dir.join("layout");
+        newest_with_ext(&dir, "onnx", true).unwrap_or_else(|| dir.join("model.onnx"))
     }
 
     pub fn new(models_dir: PathBuf) -> Self {
@@ -108,7 +141,7 @@ impl ModelManager {
         } else if find_gguf(&self.models_dir).is_none() {
             format!(
                 "未找到 GGUF 模型文件: {}",
-                self.models_dir.join("hy-mt2-1.8b-gguf").display()
+                self.models_dir.join("llm").display()
             )
         } else {
             "未启动".into()
@@ -139,7 +172,7 @@ impl ModelManager {
         let gguf = find_gguf(&self.models_dir).with_context(|| {
             format!(
                 "未找到 GGUF 模型: {}",
-                self.models_dir.join("hy-mt2-1.8b-gguf").display()
+                self.models_dir.join("llm").display()
             )
         })?;
 
@@ -207,12 +240,12 @@ impl ModelManager {
     }
 }
 
-pub struct HyMt2Service {
+pub struct LocalLlmService {
     manager: Arc<ModelManager>,
     client: reqwest::Client,
 }
 
-impl HyMt2Service {
+impl LocalLlmService {
     pub fn new(manager: Arc<ModelManager>) -> Self {
         Self {
             manager,
@@ -240,13 +273,13 @@ fn language_name(code: &str) -> String {
 }
 
 #[async_trait]
-impl TranslateService for HyMt2Service {
+impl TranslateService for LocalLlmService {
     fn id(&self) -> &str {
-        "hy-mt2"
+        "local-llm"
     }
 
     fn name(&self) -> &str {
-        "Hy-MT2 本地模型"
+        "本地模型"
     }
 
     async fn translate(
@@ -262,7 +295,7 @@ impl TranslateService for HyMt2Service {
             raw
         );
         let body = serde_json::json!({
-            "model": "hy-mt2",
+            "model": "local-model",
             "messages": [{ "role": "user", "content": prompt }],
             "temperature": 0.0,
             "max_tokens": 2048,
@@ -285,5 +318,114 @@ impl TranslateService for HyMt2Service {
             .as_str()
             .map(|s| s.trim().to_string())
             .ok_or_else(|| anyhow::anyhow!("本地模型返回格式异常: {json}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let unique = format!(
+                "scholarust-model-test-{tag}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let path = std::env::temp_dir().join(unique);
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write(dir: &Path, rel: &str, modified_secs: u64) -> PathBuf {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"x").unwrap();
+        let time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(modified_secs);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+        path
+    }
+
+    #[test]
+    fn find_gguf_prefers_llm_folder() {
+        let tmp = TempDir::new("prefer-llm");
+        let legacy = write(tmp.path(), "some-old-model/legacy.gguf", 100);
+        let preferred = write(tmp.path(), "llm/new-model.gguf", 50);
+        // Even though the legacy file is newer, the dedicated llm/ folder wins.
+        assert_eq!(find_gguf(tmp.path()), Some(preferred));
+        assert_ne!(find_gguf(tmp.path()), Some(legacy));
+    }
+
+    #[test]
+    fn find_gguf_falls_back_to_recursive_scan() {
+        let tmp = TempDir::new("fallback");
+        let model = write(tmp.path(), "hy-mt2-1.8b-gguf/whatever-name.gguf", 100);
+        assert_eq!(find_gguf(tmp.path()), Some(model));
+    }
+
+    #[test]
+    fn find_gguf_picks_newest_within_folder() {
+        let tmp = TempDir::new("newest");
+        write(tmp.path(), "llm/old.gguf", 100);
+        let newest = write(tmp.path(), "llm/new.gguf", 200);
+        write(tmp.path(), "llm/mid.gguf", 150);
+        assert_eq!(find_gguf(tmp.path()), Some(newest));
+    }
+
+    #[test]
+    fn find_gguf_ignores_other_extensions_and_empty() {
+        let tmp = TempDir::new("ignore");
+        write(tmp.path(), "llm/notes.txt", 100);
+        write(tmp.path(), "llm/model.onnx", 100);
+        assert_eq!(find_gguf(tmp.path()), None);
+        assert_eq!(find_gguf(&tmp.path().join("does-not-exist")), None);
+    }
+
+    #[test]
+    fn find_gguf_case_insensitive_extension() {
+        let tmp = TempDir::new("case");
+        let model = write(tmp.path(), "llm/Model.GGUF", 100);
+        assert_eq!(find_gguf(tmp.path()), Some(model));
+    }
+
+    #[test]
+    fn layout_scan_finds_onnx_by_extension() {
+        let tmp = TempDir::new("layout");
+        let manager = ModelManager::new(tmp.path().to_path_buf());
+        // No onnx yet: returns a placeholder that does not exist.
+        assert!(!manager.layout_model_path().is_file());
+        let onnx = write(tmp.path(), "layout/any-layout-model.onnx", 100);
+        write(tmp.path(), "layout/readme.md", 200);
+        assert_eq!(manager.layout_model_path(), onnx);
+    }
+
+    #[test]
+    fn layout_scan_picks_newest_onnx() {
+        let tmp = TempDir::new("layout-newest");
+        let manager = ModelManager::new(tmp.path().to_path_buf());
+        write(tmp.path(), "layout/old.onnx", 100);
+        let newest = write(tmp.path(), "layout/new.onnx", 300);
+        assert_eq!(manager.layout_model_path(), newest);
     }
 }

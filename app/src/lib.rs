@@ -2,7 +2,7 @@ mod commands;
 mod model;
 mod state;
 
-use model::{HyMt2Service, ModelManager};
+use model::{LocalLlmService, ModelManager};
 use scholarust_core::Library;
 use scholarust_plugin_host::PluginHost;
 use scholarust_translate::services::{google::GoogleService, mymemory::MyMemoryService, openai::OpenAIService};
@@ -31,7 +31,7 @@ pub fn run() {
             registry.register(Arc::new(GoogleService::default()));
             registry.register(Arc::new(MyMemoryService::default()));
             registry.register(Arc::new(OpenAIService::new(openai_config.clone())));
-            registry.register(Arc::new(HyMt2Service::new(model_manager.clone())));
+            registry.register(Arc::new(LocalLlmService::new(model_manager.clone())));
 
             let plugin_host = PluginHost::load_dir(&data_dir.join("plugins"));
             for service in plugin_host.services {

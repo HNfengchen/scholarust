@@ -133,7 +133,7 @@ export default function SettingsPanel({ settings, services, onSaveSettings, onNo
             </button>
           </div>
         </div>
-        <div className="model-hint">Hy-MT2-1.8B，首次启动需加载模型约 10-30 秒</div>
+        <div className="model-hint">本地 GGUF 模型（放入 models/llm 文件夹），首次启动需加载约 10-30 秒</div>
       </section>
     </div>
   );

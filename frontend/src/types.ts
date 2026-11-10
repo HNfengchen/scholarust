@@ -116,7 +116,7 @@ export function serviceHint(serviceId: string | undefined): string {
   if (serviceId === "google" || serviceId === "mymemory") {
     return "公共免费接口，无需填写 URL 或密钥，高峰时段可能限流";
   }
-  if (serviceId === "hy-mt2") return "本地离线模型，无需联网与密钥，首次翻译时自动启动";
+  if (serviceId === "local-llm") return "本地离线模型，无需联网与密钥，首次翻译时自动启动";
   if (serviceId === "openai") return "需在「设置」面板填写 Endpoint、Model 与 API Key";
   if (serviceId.startsWith("plugin:")) return "由已安装的插件提供，可在「扩展」面板管理";
   return "自定义翻译服务";

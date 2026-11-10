@@ -7,10 +7,10 @@
 - **多格式阅读**：PDF（pdf.js，含 TextLayer 文字选取）、EPUB（epub.js）、Word（mammoth）、Markdown / 纯文本
 - **阅读模式**：一键把文章重排为干净的阅读视图——按重复行/位置剔除页眉、页脚、页码，按字号与编号识别标题、章节、摘要、正文、注释、参考文献并分块；每块独立「翻译此块」按钮，「翻译正文」只批量翻译标题/章节/摘要/正文/注释（不含参考文献与图表说明），译文逐块即时回填
 - **划词翻译**：PDF/EPUB/HTML 中选中文字即自动翻译（PDF 通过 pdf.js TextLayer 支持选取）
-- **翻译服务**：Google、MyMemory、OpenAI 兼容接口、**Hy-MT2 本地模型**、WASM 插件服务；自动语言检测、同语种跳过、候选服务回退、并发批量翻译；仅 OpenAI 兼容服务需要填写 Endpoint/Model/API Key
+- **翻译服务**：Google、MyMemory、OpenAI 兼容接口、**本地模型（任意 GGUF）**、WASM 插件服务；自动语言检测、同语种跳过、候选服务回退、并发批量翻译；仅 OpenAI 兼容服务需要填写 Endpoint/Model/API Key
 - **左栏分类管理**（Zotero 式）：全部文档 / 最近打开 / 收藏夹（可嵌套、新建/重命名/删除）/ 按格式下拉筛选 / 标签（带计数），文档列表支持标签与 ⋯ 菜单
 - **右栏 IDE 式面板**（VS Code 式 activity bar）：翻译（含本地模型状态卡）、大纲（PDF 按识别出的真实标题跳转页码）、笔记、搜索、扩展（插件导入/启停/卸载）、设置；通过 `frontend/src/panels/registry.ts` 的 `registerPanel()` 注册新面板
-- **本地模型翻译**：Hy-MT2-1.8B（GGUF Q8_0）+ llama.cpp Vulkan 后端，GPU 全量 offload，常驻服务免重载
+- **本地模型翻译**：任意 GGUF 权重（放入 `models/llm/` 自动扫描）+ llama.cpp Vulkan 后端，GPU 全量 offload，常驻服务免重载
 - **插件管理**：统一 ZIP 插件包格式，扩展面板内导入、启用/停用、卸载，翻译服务注册表实时更新
 
 ## 目录结构
@@ -49,14 +49,16 @@ scholarust.bat status     :: 查看运行状态
 
 首次启动后点左栏「打开文件」选择文档（可先试 `examples/sample-paper.md`），工具栏点「阅读模式」即可看到重排后的分块阅读视图，逐块点击「翻译此块」或一键「翻译正文」。
 
-## 本地模型（Hy-MT2）
+## 本地模型（任意 GGUF）
 
-`models/` 目录不入 git，按需下载（国内推荐 ModelScope，约 12MB/s）：
+本地翻译服务不绑定具体模型：把任意 `.gguf` 权重放进专用目录 **`models/llm/`** 即可，代码自动扫描加载（有多个时取最近修改的一个）。也兼容把模型放在 `models/` 下任意子文件夹（会递归扫描兜底）。切换模型只需替换/新增 `models/llm/` 里的文件，无需改代码。
+
+`models/` 目录不入 git，按需下载（国内推荐 ModelScope，约 12MB/s）。以 Hy-MT2-1.8B 为例：
 
 ```bash
-mkdir -p models/hy-mt2-1.8b-gguf models/llama.cpp
-# GGUF 权重（Q8_0，1.9GB；也可换 Q4_K_M/Q6_K，代码自动择优）
-curl -L -o models/hy-mt2-1.8b-gguf/Hy-MT2-1.8B-Q8_0.gguf \
+mkdir -p models/llm models/llama.cpp
+# GGUF 权重（Q8_0，1.9GB；也可换 Q4_K_M/Q6_K 或任意其它 GGUF 模型）
+curl -L -o models/llm/Hy-MT2-1.8B-Q8_0.gguf \
   https://modelscope.cn/models/Tencent-Hunyuan/Hy-MT2-1.8B-GGUF/resolve/master/Hy-MT2-1.8B-Q8_0.gguf
 # llama.cpp Vulkan 预编译（资产名随版本变化，见 releases 页）
 curl -L -o /tmp/llama.zip \
@@ -66,13 +68,13 @@ unzip -o /tmp/llama.zip -d models/llama.cpp
 
 FP8 原始权重（可选，研究用）：`https://hf-mirror.com/tencent/Hy-MT2-1.8B-FP8/resolve/main/model.safetensors` → `models/hy-mt2-1.8b-fp8/`。
 
-使用：右栏「设置」→ 本地模型 →「启动」（或翻译时自动惰性启动），翻译服务选「Hy-MT2 本地模型」。
+使用：右栏「设置」→ 本地模型 →「启动」（或翻译时自动惰性启动），翻译服务选「本地模型」。
 
 **效率优化**（`app/src/model.rs`）：`-ngl 99` 全量 GPU offload、`--flash-attn on`、16K 上下文、`--parallel 4` 连续批处理、常驻暖服务（启动一次反复使用）、段落级并发请求。实测 RTX 4070 Laptop：单段学术文本 1.9s（约 116 tok/s），4 段并发合计 1.9s。
 
 ## 版面模型（阅读模式）
 
-PDF 阅读模式使用 DocLayout-YOLO 识别版面。未放模型时会回退到简化抽取。
+PDF 阅读模式使用 DocLayout-YOLO 识别版面。代码扫描 `models/layout/` 下的任意 `.onnx` 文件（有多个时取最近修改的一个），文件名不限。未放模型时会回退到简化抽取。
 
     mkdir -p models/layout
     curl -L -o models/layout/doclayout_yolo_docstructbench_imgsz1024.onnx \

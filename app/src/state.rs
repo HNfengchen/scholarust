@@ -30,10 +30,16 @@ impl Default for Settings {
 
 impl Settings {
     pub fn load(file: &Path) -> Self {
-        std::fs::read_to_string(file)
+        let mut settings: Self = std::fs::read_to_string(file)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // The local model service was renamed from a model-specific id to a
+        // generic one; migrate previously saved selections.
+        if settings.service == "hy-mt2" {
+            settings.service = "local-llm".into();
+        }
+        settings
     }
 
     pub fn save(&self, file: &Path) -> anyhow::Result<()> {

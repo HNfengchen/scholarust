@@ -4,7 +4,7 @@ import { serviceHint } from "../types";
 
 function isLocalModel(serviceId: string | undefined): boolean {
   if (!serviceId) return false;
-  return serviceId === "hy-mt2" || serviceId.startsWith("hy-mt2");
+  return serviceId === "local-llm";
 }
 
 export default function TranslatePanel({

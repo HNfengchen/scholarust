@@ -65,3 +65,64 @@ export function scrollToPage(host: HTMLElement | null, page: number): void {
 export function scrollToElement(element: HTMLElement): void {
   element.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+export function clearHighlights(host: HTMLElement | null): void {
+  if (!host) return;
+  const roots: ParentNode[] = [host, ...iframeDocuments(host)];
+  for (const root of roots) {
+    for (const mark of Array.from(root.querySelectorAll("mark.search-hit"))) {
+      const parent = mark.parentNode;
+      if (!parent) continue;
+      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+      parent.removeChild(mark);
+      parent.normalize();
+    }
+    for (const element of Array.from(root.querySelectorAll<HTMLElement>(".search-flash"))) {
+      element.classList.remove("search-flash");
+    }
+  }
+}
+
+// 在容器内的文本节点中把命中查询的片段包成 <mark>，返回首个命中元素。
+// 仅操作既有文本节点、不插入 HTML，因此对 iframe 内的原文也是安全的。
+export function highlightMatches(container: HTMLElement, query: string): HTMLElement | null {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return null;
+  const doc = container.ownerDocument;
+  const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let node = walker.nextNode();
+  while (node) {
+    textNodes.push(node as Text);
+    node = walker.nextNode();
+  }
+  let first: HTMLElement | null = null;
+  for (const textNode of textNodes) {
+    const text = textNode.nodeValue ?? "";
+    const lower = text.toLowerCase();
+    let idx = lower.indexOf(needle);
+    if (idx < 0) continue;
+    const frag = doc.createDocumentFragment();
+    let cursor = 0;
+    while (idx >= 0) {
+      frag.appendChild(doc.createTextNode(text.slice(cursor, idx)));
+      const mark = doc.createElement("mark");
+      mark.className = "search-hit";
+      mark.textContent = text.slice(idx, idx + needle.length);
+      frag.appendChild(mark);
+      first ??= mark;
+      cursor = idx + needle.length;
+      idx = lower.indexOf(needle, cursor);
+    }
+    frag.appendChild(doc.createTextNode(text.slice(cursor)));
+    textNode.parentNode?.replaceChild(frag, textNode);
+  }
+  return first;
+}
+
+export function flashElement(element: HTMLElement): void {
+  element.classList.remove("search-flash");
+  void element.offsetWidth;
+  element.classList.add("search-flash");
+  window.setTimeout(() => element.classList.remove("search-flash"), 1800);
+}

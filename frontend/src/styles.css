@@ -1171,6 +1171,26 @@ input:focus {
   line-height: 1.5;
 }
 
+mark.search-hit {
+  background: rgba(79, 70, 229, 0.35);
+  color: inherit;
+  padding: 0;
+  border-radius: 2px;
+}
+
+.search-flash {
+  animation: search-flash 1.8s ease-out;
+}
+
+@keyframes search-flash {
+  0% {
+    background-color: rgba(79, 70, 229, 0.28);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 /* ===== 笔记面板 ===== */
 .notes-body {
   display: flex;

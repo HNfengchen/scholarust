@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { PanelContext } from "./registry";
-import { collectBlocks, scrollToElement, scrollToPage } from "./readerDom";
+import { collectBlocks, clearHighlights, flashElement, highlightMatches } from "./readerDom";
 
 interface SearchItem {
   index: number;
@@ -89,8 +89,23 @@ export default function SearchPanel({
     onShowOriginal();
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        if (item.page != null) scrollToPage(readerHostRef.current, item.page);
-        else if (item.element) scrollToElement(item.element);
+        const host = readerHostRef.current;
+        clearHighlights(host);
+        let container: HTMLElement | null;
+        let scrollTarget: HTMLElement | null;
+        if (item.page != null) {
+          const page =
+            host?.querySelector<HTMLElement>(`.pdf-page[data-page-number="${item.page}"]`) ?? null;
+          container = page?.querySelector<HTMLElement>(".textLayer") ?? page;
+          scrollTarget = page;
+        } else {
+          container = item.element;
+          scrollTarget = item.element;
+        }
+        if (!container) return;
+        const firstHit = highlightMatches(container, needle);
+        flashElement(container);
+        (firstHit ?? scrollTarget ?? container).scrollIntoView({ behavior: "smooth", block: "center" });
       }),
     );
   };

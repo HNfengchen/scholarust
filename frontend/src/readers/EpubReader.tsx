@@ -6,6 +6,8 @@ import { extractEpubParagraphs } from "../paragraphs";
 import { extractEpubStructure } from "../structure";
 import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
+import { flattenEpubNav } from "../outline";
+import type { EpubNavNode, OutlineExtractor } from "../outline";
 
 interface Props {
   url: string;
@@ -13,11 +15,12 @@ interface Props {
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
+  outlineRef: MutableRefObject<OutlineExtractor | null>;
   onError: (message: string) => void;
   onSelection: (text: string) => void;
 }
 
-export default function EpubReader({ url, docId, extractorRef, structureRef, readingStructureRef, onError, onSelection }: Props) {
+export default function EpubReader({ url, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const renditionRef = useRef<Rendition | null>(null);
 
@@ -38,6 +41,14 @@ export default function EpubReader({ url, docId, extractorRef, structureRef, rea
       extractorRef.current = async () => extractEpubParagraphs(rendition);
       structureRef.current = async () => extractEpubStructure(rendition, { docId });
       readingStructureRef.current = structureRef.current;
+      const currentBook = book;
+      outlineRef.current = async () => {
+        const navigation = await currentBook.loaded.navigation;
+        return flattenEpubNav(navigation.toc as unknown as EpubNavNode[]).map((entry) => ({
+          ...entry,
+          action: entry.href ? () => rendition.display(entry.href!) : undefined,
+        }));
+      };
       rendition.on("selected", (_cfiRange: string, contents: { window: Window }) => {
         const text = contents.window.getSelection()?.toString().trim() ?? "";
         if (text) onSelection(text);
@@ -55,10 +66,11 @@ export default function EpubReader({ url, docId, extractorRef, structureRef, rea
       extractorRef.current = null;
       structureRef.current = null;
       readingStructureRef.current = null;
+      outlineRef.current = null;
       book?.destroy();
       container.replaceChildren();
     };
-  }, [url, docId, extractorRef, structureRef, readingStructureRef, onError, onSelection]);
+  }, [url, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection]);
 
   return (
     <div className="epub-reader">

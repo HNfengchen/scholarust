@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { getDocument, GlobalWorkerOptions, TextLayer } from "pdfjs-dist";
-import type { PDFDocumentLoadingTask } from "pdfjs-dist";
+import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
+import type { RefProxy } from "pdfjs-dist/types/src/display/api";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { extractPdfParagraphs } from "../paragraphs";
 import { extractPdfStructure } from "../structure";
@@ -10,18 +11,41 @@ import type { ParagraphExtractor } from "../types";
 import * as api from "../api";
 import { convertFileSrc } from "../api";
 import { extractPdfStructureWithLayout } from "../layout/pdfLayout";
+import { flattenPdfOutline } from "../outline";
+import type { OutlineEntry, OutlineExtractor, PdfOutlineNode } from "../outline";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
+
+async function resolvePdfOutline(
+  doc: PDFDocumentProxy,
+  nodes: PdfOutlineNode[],
+): Promise<PdfOutlineNode[]> {
+  const out: PdfOutlineNode[] = [];
+  for (const node of nodes) {
+    let page: number | undefined;
+    try {
+      const dest = typeof node.dest === "string" ? await doc.getDestination(node.dest) : node.dest;
+      if (Array.isArray(dest) && dest[0]) {
+        page = (await doc.getPageIndex(dest[0] as RefProxy)) + 1;
+      }
+    } catch {
+      /* broken destination: keep the title, no page */
+    }
+    out.push({ ...node, page, items: await resolvePdfOutline(doc, node.items ?? []) });
+  }
+  return out;
+}
 
 interface Props {
   url: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
+  outlineRef: MutableRefObject<OutlineExtractor | null>;
   onError: (message: string) => void;
 }
 
-export default function PdfReader({ url, extractorRef, structureRef, readingStructureRef, onError }: Props) {
+export default function PdfReader({ url, extractorRef, structureRef, readingStructureRef, outlineRef, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("正在加载 PDF…");
 
@@ -71,6 +95,15 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
           }
         })();
         return readingPromise;
+      };
+      let outlinePromise: Promise<OutlineEntry[]> | null = null;
+      outlineRef.current = () => {
+        outlinePromise ??= (async () => {
+          const nodes = (await doc.getOutline()) as PdfOutlineNode[] | null;
+          if (!nodes?.length) return [];
+          return flattenPdfOutline(await resolvePdfOutline(doc, nodes));
+        })();
+        return outlinePromise;
       };
       const available = Math.max(container.clientWidth - 48, 320);
       for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
@@ -126,10 +159,11 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
       extractorRef.current = null;
       structureRef.current = null;
       readingStructureRef.current = null;
+      outlineRef.current = null;
       container.replaceChildren();
       void loadingTask?.destroy();
     };
-  }, [url, extractorRef, structureRef, readingStructureRef, onError]);
+  }, [url, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
 
   return (
     <div className="pdf-reader">

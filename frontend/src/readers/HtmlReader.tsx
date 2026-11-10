@@ -5,6 +5,9 @@ import { extractHtmlParagraphs } from "../paragraphs";
 import { extractHtmlStructure } from "../structure";
 import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
+import { outlineEntriesFromHeadings } from "../outline";
+import type { OutlineExtractor } from "../outline";
+import { collectHeadings } from "../panels/readerDom";
 
 interface Props {
   html: string | null;
@@ -13,10 +16,11 @@ interface Props {
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
+  outlineRef: MutableRefObject<OutlineExtractor | null>;
   onError: (message: string) => void;
 }
 
-export default function HtmlReader({ html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, onError }: Props) {
+export default function HtmlReader({ html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
 
@@ -30,6 +34,7 @@ export default function HtmlReader({ html, docxUrl, docId, extractorRef, structu
       extractorRef.current = async () => extractHtmlParagraphs(container);
       structureRef.current = async () => extractHtmlStructure(container, { docId });
       readingStructureRef.current = structureRef.current;
+      outlineRef.current = async () => outlineEntriesFromHeadings(collectHeadings(container));
     };
 
     if (docxUrl) {
@@ -60,8 +65,9 @@ export default function HtmlReader({ html, docxUrl, docId, extractorRef, structu
       extractorRef.current = null;
       structureRef.current = null;
       readingStructureRef.current = null;
+      outlineRef.current = null;
     };
-  }, [html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, onError]);
+  }, [html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
 
   return (
     <div className="html-reader-wrap">

@@ -2,6 +2,7 @@ import type { MutableRefObject } from "react";
 import { convertFileSrc } from "../api";
 import type { DocumentContent, ParagraphExtractor } from "../types";
 import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
+import type { OutlineExtractor } from "../outline";
 import PdfReader from "../readers/PdfReader";
 import EpubReader from "../readers/EpubReader";
 import HtmlReader from "../readers/HtmlReader";
@@ -12,11 +13,12 @@ interface Props {
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
+  outlineRef: MutableRefObject<OutlineExtractor | null>;
   onError: (message: string) => void;
   onSelection: (text: string) => void;
 }
 
-export default function Reader({ content, docId, extractorRef, structureRef, readingStructureRef, onError, onSelection }: Props) {
+export default function Reader({ content, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection }: Props) {
   const url = convertFileSrc(content.path);
   switch (content.kind) {
     case "pdf":
@@ -26,6 +28,7 @@ export default function Reader({ content, docId, extractorRef, structureRef, rea
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
+          outlineRef={outlineRef}
           onError={onError}
         />
       );
@@ -37,6 +40,7 @@ export default function Reader({ content, docId, extractorRef, structureRef, rea
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
+          outlineRef={outlineRef}
           onError={onError}
           onSelection={onSelection}
         />
@@ -50,6 +54,7 @@ export default function Reader({ content, docId, extractorRef, structureRef, rea
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
+          outlineRef={outlineRef}
           onError={onError}
         />
       );
@@ -62,6 +67,7 @@ export default function Reader({ content, docId, extractorRef, structureRef, rea
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
+          outlineRef={outlineRef}
           onError={onError}
         />
       );

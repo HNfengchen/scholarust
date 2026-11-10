@@ -10,6 +10,7 @@ import type { PanelContext } from "./panels/registry";
 import * as api from "./api";
 import { CONTENT_KINDS } from "./structure";
 import type { DocumentStructure, ReadingStructureExtractor, StructuredBlock, StructureExtractor } from "./structure";
+import type { OutlineExtractor } from "./outline";
 import type {
   BlockTranslation,
   Collection,
@@ -66,6 +67,7 @@ export default function App() {
   const extractorRef = useRef<ParagraphExtractor | null>(null);
   const structureRef = useRef<StructureExtractor | null>(null);
   const readingStructureRef = useRef<ReadingStructureExtractor | null>(null);
+  const outlineRef = useRef<OutlineExtractor | null>(null);
   const readerHostRef = useRef<HTMLDivElement>(null);
   const readingCache = useRef(new Map<string, ReadingCache>());
   const activeDocIdRef = useRef<string | null>(null);
@@ -476,6 +478,7 @@ export default function App() {
       content,
       extractorRef,
       structureRef,
+      outlineRef,
       readerHostRef,
       selection,
       services,
@@ -569,6 +572,7 @@ export default function App() {
                     extractorRef={extractorRef}
                     structureRef={structureRef}
                     readingStructureRef={readingStructureRef}
+                    outlineRef={outlineRef}
                     onError={showError}
                     onSelection={handleSelectionText}
                   />

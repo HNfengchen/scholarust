@@ -196,7 +196,7 @@ zip -j ../my-plugin.zip plugin.json target/wasm32-unknown-unknown/release/my_plu
 Windows 下也可用资源管理器选中三个文件 →「压缩为 ZIP」，或用任意压缩工具，只要保证：
 `plugin.json` 在根部（或单层根目录内）、`entry` 文件名匹配。
 
-仓库自带示例包 `plugins/example-translate.zip` 可直接导入体验，其源码在 `plugins/example-translate/`。
+仓库自带示例包 `plugins/example-translate.zip`（材料专业英文术语插件，内置 650 余条材料领域术语）可直接导入体验，其源码在 `plugins/example-translate/`。
 
 ---
 

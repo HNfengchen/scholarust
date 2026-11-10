@@ -114,7 +114,7 @@ export default function ExtensionsPanel({ plugins, onRefreshPlugins }: PanelCont
 
       {plugins.length === 0 && (
         <div className="empty-hint">
-          暂无插件。可导入项目自带的 plugins/example-translate.zip 示例包体验。
+          暂无插件。可导入项目自带的 plugins/example-translate.zip（材料专业英文术语）示例包体验。
         </div>
       )}
       {plugins.map((plugin) => (

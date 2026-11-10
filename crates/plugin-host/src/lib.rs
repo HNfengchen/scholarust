@@ -405,7 +405,7 @@ mod tests {
         for bad in ["../evil", "a/b", "a\\b", "", ".hidden", "a..b", "a\0b"] {
             assert!(validate_name(bad).is_err(), "should reject: {bad:?}");
         }
-        assert!(validate_name("术语词条例句").is_ok());
+        assert!(validate_name("材料专业英文术语").is_ok());
         assert!(validate_name("my-plugin_2").is_ok());
     }
 

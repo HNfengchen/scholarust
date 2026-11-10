@@ -226,7 +226,32 @@ impl PluginHost {
         std::fs::write(target.join(&manifest.entry), &wasm)
             .with_context(|| format!("failed to write wasm entry: {}", manifest.entry))?;
 
+        // Optional README.md shipped next to the manifest, shown in the
+        // plugin "details" view. Absent README is fine.
+        if let Some(&readme_index) = entries.get(&format!("{prefix}README.md")) {
+            let mut readme = String::new();
+            archive
+                .by_index(readme_index)
+                .context("failed to read README.md from zip")?
+                .read_to_string(&mut readme)
+                .context("failed to read README.md from zip")?;
+            std::fs::write(target.join("README.md"), readme)
+                .context("failed to write plugin README.md")?;
+        }
+
         Ok(PluginInfo::from_manifest(&manifest))
+    }
+
+    /// Reads a plugin's bundled README.md; returns an empty string when the
+    /// plugin ships none. The name is validated before touching the filesystem.
+    pub fn read_readme(plugins_dir: &Path, name: &str) -> anyhow::Result<String> {
+        validate_name(name)?;
+        let path = plugins_dir.join(name).join("README.md");
+        match std::fs::read_to_string(&path) {
+            Ok(text) => Ok(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(e).with_context(|| format!("failed to read README for plugin: {name}")),
+        }
     }
 
     /// Persists the enabled flag in the plugin's plugin.json.
@@ -451,5 +476,66 @@ mod tests {
 
         PluginHost::uninstall(&plugins_dir, "测试插件").unwrap();
         assert!(!plugin_dir.exists());
+    }
+
+    /// Smallest valid wasm that exports a no-op `translate`, enough to pass
+    /// the install-time instantiation probe without a real toolchain build.
+    const MINIMAL_WASM: &[u8] = &[
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: () -> ()
+        0x03, 0x02, 0x01, 0x00, // func 0 : type 0
+        0x07, 0x0d, 0x01, 0x09, b't', b'r', b'a', b'n', b's', b'l', b'a', b't', b'e', 0x00,
+        0x00, // export "translate" = func 0
+        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // code: empty body
+    ];
+
+    #[test]
+    fn install_zip_extracts_readme() {
+        let tmp = TempDir::new("readme");
+        let zip_path = tmp.path().join("pkg.zip");
+        let manifest = r#"{"name":"带说明插件","version":"0.1.0","entry":"x.wasm"}"#.as_bytes();
+        let readme = "# 插件说明\n这是 README。";
+        write_zip(
+            &zip_path,
+            &[
+                ("plugin.json", manifest),
+                ("x.wasm", MINIMAL_WASM),
+                ("README.md", readme.as_bytes()),
+            ],
+        );
+        let plugins_dir = tmp.path().join("plugins");
+        let info = PluginHost::install_zip(&zip_path, &plugins_dir).unwrap();
+        assert_eq!(info.name, "带说明插件");
+        assert_eq!(
+            PluginHost::read_readme(&plugins_dir, "带说明插件").unwrap(),
+            readme
+        );
+    }
+
+    #[test]
+    fn install_zip_without_readme_returns_empty() {
+        let tmp = TempDir::new("no-readme");
+        let zip_path = tmp.path().join("pkg.zip");
+        let manifest = r#"{"name":"无说明插件","version":"0.1.0","entry":"x.wasm"}"#.as_bytes();
+        write_zip(
+            &zip_path,
+            &[("plugin.json", manifest), ("x.wasm", MINIMAL_WASM)],
+        );
+        let plugins_dir = tmp.path().join("plugins");
+        PluginHost::install_zip(&zip_path, &plugins_dir).unwrap();
+        assert_eq!(
+            PluginHost::read_readme(&plugins_dir, "无说明插件").unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn read_readme_missing_plugin_and_traversal() {
+        let tmp = TempDir::new("readme-guard");
+        assert_eq!(
+            PluginHost::read_readme(tmp.path(), "不存在的插件").unwrap(),
+            ""
+        );
+        assert!(PluginHost::read_readme(tmp.path(), "../evil").is_err());
     }
 }

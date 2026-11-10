@@ -127,3 +127,7 @@ export function setPluginEnabled(name: string, enabled: boolean): Promise<Plugin
 export function removePlugin(name: string): Promise<PluginInfo[]> {
   return invoke<PluginInfo[]>("remove_plugin", { name });
 }
+
+export function pluginReadme(name: string): Promise<string> {
+  return invoke<string>("plugin_readme", { name });
+}

@@ -82,7 +82,9 @@ PDF 阅读模式使用 DocLayout-YOLO 识别版面。代码扫描 `models/layout
 
 ## 插件（统一 ZIP 包格式）
 
-**导入格式固定为 ZIP 插件包**：压缩包根部（或单层根目录内）包含 `plugin.json` 与 `.wasm` 入口。在右栏「扩展」面板点「导入插件包（.zip）」选择文件即可，无需重启；同一面板可启用/停用、卸载，翻译服务下拉实时更新。仓库自带示例包 `plugins/example-translate.zip` 可直接导入体验。
+**导入格式固定为 ZIP 插件包**：压缩包根部（或单层根目录内）包含 `plugin.json` 与 `.wasm` 入口，可附 `README.md` 说明。在右栏「扩展」面板点「导入插件包（.zip）」选择文件即可，无需重启；同一面板可启用/停用、点「详情」查看插件 README、卸载，翻译服务下拉实时更新。仓库自带示例包 `plugins/example-translate.zip` 可直接导入体验。
+
+**完整插件开发指南见 [`docs/plugin-development.md`](docs/plugin-development.md)**（包格式、manifest 字段、`translate` 契约、Rust 构建、打包、调试与安全模型）。
 
 `plugin.json` 字段：
 

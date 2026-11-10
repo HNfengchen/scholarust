@@ -63,6 +63,7 @@ pub fn run() {
             commands::import_plugin,
             commands::set_plugin_enabled,
             commands::remove_plugin,
+            commands::plugin_readme,
             commands::get_library,
             commands::create_collection,
             commands::rename_collection,

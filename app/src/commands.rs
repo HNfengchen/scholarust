@@ -218,6 +218,12 @@ async fn release_plugin_service(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn plugin_readme(state: State<'_, AppState>, name: String) -> Result<String, String> {
+    let plugins_dir = state.data_dir.join("plugins");
+    PluginHost::read_readme(&plugins_dir, &name).map_err(err)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryData {

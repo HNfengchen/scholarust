@@ -2,15 +2,24 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { PanelContext } from "./registry";
 import * as api from "../api";
+import SafeMarkdown from "../components/SafeMarkdown";
+import type { PluginInfo } from "../types";
 
 interface Notice {
   text: string;
   kind: "ok" | "error";
 }
 
+interface Detail {
+  plugin: PluginInfo;
+  readme: string;
+}
+
 export default function ExtensionsPanel({ plugins, onRefreshPlugins }: PanelContext) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
 
   const handleImport = async () => {
     let picked: string | null = null;
@@ -67,6 +76,18 @@ export default function ExtensionsPanel({ plugins, onRefreshPlugins }: PanelCont
     }
   };
 
+  const handleDetails = async (plugin: PluginInfo) => {
+    setDetailBusy(true);
+    try {
+      const readme = await api.pluginReadme(plugin.name);
+      setDetail({ plugin, readme });
+    } catch (err) {
+      setNotice({ text: `读取插件详情失败：${String(err)}`, kind: "error" });
+    } finally {
+      setDetailBusy(false);
+    }
+  };
+
   return (
     <div className="panel-body">
       <section className="panel-section">
@@ -85,8 +106,8 @@ export default function ExtensionsPanel({ plugins, onRefreshPlugins }: PanelCont
           )}
         </button>
         <div className="service-hint">
-          统一插件格式：ZIP 包内含 plugin.json 与 .wasm 入口（Extism 沙箱，导出 translate 函数）。
-          导入后自动注册为翻译服务，可在此启停或卸载。
+          统一插件格式：ZIP 包内含 plugin.json 与 .wasm 入口（Extism 沙箱，导出 translate 函数），
+          可附 README.md 说明。导入后自动注册为翻译服务，可在此启停、查看详情或卸载。
         </div>
         {notice && <div className={`extension-notice ${notice.kind}`}>{notice.text}</div>}
       </section>
@@ -115,6 +136,13 @@ export default function ExtensionsPanel({ plugins, onRefreshPlugins }: PanelCont
               <span>{plugin.enabled ? "已启用" : "已停用"}</span>
             </label>
             <button
+              className="btn btn-small"
+              onClick={() => void handleDetails(plugin)}
+              disabled={busy !== null || detailBusy}
+            >
+              详情
+            </button>
+            <button
               className="btn btn-small btn-danger"
               onClick={() => void handleRemove(plugin.name)}
               disabled={busy !== null}
@@ -124,6 +152,32 @@ export default function ExtensionsPanel({ plugins, onRefreshPlugins }: PanelCont
           </div>
         </div>
       ))}
+
+      {detail && (
+        <div className="modal-overlay" onClick={() => setDetail(null)}>
+          <div className="modal-card plugin-detail" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <div className="plugin-detail-title">
+                <span className="extension-name">{detail.plugin.name}</span>
+                <span className="extension-version">v{detail.plugin.version}</span>
+              </div>
+              <button className="btn btn-small" onClick={() => setDetail(null)}>
+                关闭
+              </button>
+            </div>
+            {detail.plugin.description && (
+              <div className="extension-desc">{detail.plugin.description}</div>
+            )}
+            <div className="plugin-detail-body">
+              {detail.readme.trim() ? (
+                <SafeMarkdown markdown={detail.readme} className="markdown-body" />
+              ) : (
+                <div className="empty-hint">该插件未附带 README.md 说明。</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

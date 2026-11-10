@@ -9,13 +9,14 @@ import type { ParagraphExtractor } from "../types";
 interface Props {
   html: string | null;
   docxUrl: string | null;
+  docId: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
   onError: (message: string) => void;
 }
 
-export default function HtmlReader({ html, docxUrl, extractorRef, structureRef, readingStructureRef, onError }: Props) {
+export default function HtmlReader({ html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +28,7 @@ export default function HtmlReader({ html, docxUrl, extractorRef, structureRef, 
 
     const register = () => {
       extractorRef.current = async () => extractHtmlParagraphs(container);
-      structureRef.current = async () => extractHtmlStructure(container);
+      structureRef.current = async () => extractHtmlStructure(container, { docId });
       readingStructureRef.current = structureRef.current;
     };
 
@@ -60,7 +61,7 @@ export default function HtmlReader({ html, docxUrl, extractorRef, structureRef, 
       structureRef.current = null;
       readingStructureRef.current = null;
     };
-  }, [html, docxUrl, extractorRef, structureRef, readingStructureRef, onError]);
+  }, [html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, onError]);
 
   return (
     <div className="html-reader-wrap">

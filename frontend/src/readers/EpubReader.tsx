@@ -9,6 +9,7 @@ import type { ParagraphExtractor } from "../types";
 
 interface Props {
   url: string;
+  docId: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -16,7 +17,7 @@ interface Props {
   onSelection: (text: string) => void;
 }
 
-export default function EpubReader({ url, extractorRef, structureRef, readingStructureRef, onError, onSelection }: Props) {
+export default function EpubReader({ url, docId, extractorRef, structureRef, readingStructureRef, onError, onSelection }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const renditionRef = useRef<Rendition | null>(null);
 
@@ -35,7 +36,7 @@ export default function EpubReader({ url, extractorRef, structureRef, readingStr
       const rendition = book.renderTo(container, { width: "100%", height: "100%" });
       renditionRef.current = rendition;
       extractorRef.current = async () => extractEpubParagraphs(rendition);
-      structureRef.current = async () => extractEpubStructure(rendition);
+      structureRef.current = async () => extractEpubStructure(rendition, { docId });
       readingStructureRef.current = structureRef.current;
       rendition.on("selected", (_cfiRange: string, contents: { window: Window }) => {
         const text = contents.window.getSelection()?.toString().trim() ?? "";
@@ -57,7 +58,7 @@ export default function EpubReader({ url, extractorRef, structureRef, readingStr
       book?.destroy();
       container.replaceChildren();
     };
-  }, [url, extractorRef, structureRef, readingStructureRef, onError, onSelection]);
+  }, [url, docId, extractorRef, structureRef, readingStructureRef, onError, onSelection]);
 
   return (
     <div className="epub-reader">

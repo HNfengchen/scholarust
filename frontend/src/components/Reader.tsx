@@ -8,6 +8,7 @@ import HtmlReader from "../readers/HtmlReader";
 
 interface Props {
   content: DocumentContent;
+  docId: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -15,7 +16,7 @@ interface Props {
   onSelection: (text: string) => void;
 }
 
-export default function Reader({ content, extractorRef, structureRef, readingStructureRef, onError, onSelection }: Props) {
+export default function Reader({ content, docId, extractorRef, structureRef, readingStructureRef, onError, onSelection }: Props) {
   const url = convertFileSrc(content.path);
   switch (content.kind) {
     case "pdf":
@@ -32,6 +33,7 @@ export default function Reader({ content, extractorRef, structureRef, readingStr
       return (
         <EpubReader
           url={url}
+          docId={docId}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
@@ -44,6 +46,7 @@ export default function Reader({ content, extractorRef, structureRef, readingStr
         <HtmlReader
           html={null}
           docxUrl={url}
+          docId={docId}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
@@ -55,6 +58,7 @@ export default function Reader({ content, extractorRef, structureRef, readingStr
         <HtmlReader
           html={content.html}
           docxUrl={null}
+          docId={docId}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}

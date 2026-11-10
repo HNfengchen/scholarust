@@ -1,114 +1,229 @@
-import { BLOCK_KIND_LABELS, CONTENT_KINDS } from "../structure";
+import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
+import { CONTENT_KINDS } from "../structure";
 import type { DocumentStructure, StructuredBlock } from "../structure";
 import type { BlockTranslation } from "../types";
+import {
+  clampFontSize,
+  nextFontSize,
+  READING_FONT_DEFAULT,
+} from "./readingSettings";
 
 interface Props {
   title: string;
   structure: DocumentStructure | null;
   loading: boolean;
+  extractProgress: { done: number; total: number } | null;
   translations: Record<number, BlockTranslation>;
   batchRunning: boolean;
   onTranslateBlock: (block: StructuredBlock) => void;
-  onTranslateContent: () => void;
+  onTranslateContent: () => Promise<void>;
+}
+
+function initialFontSize(): number {
+  try {
+    const raw = localStorage.getItem("scholarust.reading.fontSize");
+    const value = raw == null ? NaN : Number(raw);
+    return Number.isFinite(value) ? clampFontSize(value) : READING_FONT_DEFAULT;
+  } catch {
+    return READING_FONT_DEFAULT;
+  }
+}
+
+function initialShowTranslation(): boolean {
+  try {
+    return localStorage.getItem("scholarust.reading.showTranslation") !== "false";
+  } catch {
+    return true;
+  }
 }
 
 export default function ReadingView({
   title,
   structure,
   loading,
+  extractProgress,
   translations,
   batchRunning,
   onTranslateBlock,
   onTranslateContent,
 }: Props) {
-  if (loading || !structure) {
-    return (
-      <div className="bilingual-loading">
-        <span className="spinner spinner-lg" />
-        <div>正在重排文档…</div>
-        <div className="muted">过滤页眉、页脚与页码，识别标题、摘要、正文与注释</div>
-      </div>
-    );
-  }
+  const [fontSize, setFontSize] = useState(initialFontSize);
+  const [showTranslation, setShowTranslation] = useState(initialShowTranslation);
+  const [noticeOpen, setNoticeOpen] = useState(true);
 
-  const contentBlocks = structure.blocks.filter((block) => CONTENT_KINDS.includes(block.kind));
+  useEffect(() => {
+    try {
+      localStorage.setItem("scholarust.reading.fontSize", String(fontSize));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [fontSize]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("scholarust.reading.showTranslation", String(showTranslation));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [showTranslation]);
+
+  useEffect(() => {
+    setNoticeOpen(true);
+  }, [structure]);
+
+  const contentBlocks =
+    structure?.blocks.filter((block) => CONTENT_KINDS.includes(block.kind)) ?? [];
   const doneCount = contentBlocks.filter((block) => translations[block.id]?.status === "done").length;
   const pendingCount = contentBlocks.filter(
     (block) => translations[block.id]?.status !== "done" && translations[block.id]?.status !== "loading",
   ).length;
 
+  const translationFor = (block: StructuredBlock) => {
+    const translation = translations[block.id];
+    return (
+      <>
+        {showTranslation && translation?.status === "done" && translation.result && (
+          <div className="reading-translation">{translation.result.result}</div>
+        )}
+        {translation?.status === "loading" && (
+          <div className="reading-translating">
+            <span className="spinner" /> 正在翻译…
+          </div>
+        )}
+        {translation?.status === "error" && (
+          <div className="reading-error">
+            翻译失败：{translation.message ?? "未知错误"}{" "}
+            <button className="btn-link" onClick={() => onTranslateBlock(block)}>
+              重试
+            </button>
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="reading">
-      <div className="reading-header">
-        <div className="reading-header-text">
-          <h2>{title}</h2>
-          <div className="reading-stats">
-            {structure.blocks.length} 个内容块
-            {structure.removedLines > 0 && ` · 已过滤 ${structure.removedLines} 行页眉/页脚/页码`}
-            {` · 已译 ${doneCount}/${contentBlocks.length}`}
-          </div>
+      <div className="reading-toolbar">
+        <div className="reading-toolbar-title" title={title}>
+          {title}
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={onTranslateContent}
-          disabled={batchRunning || pendingCount === 0}
-          title="只翻译标题、章节、摘要、正文与注释，不含参考文献与图表说明"
-        >
-          {batchRunning ? (
-            <>
-              <span className="spinner" /> 翻译中 {doneCount}/{contentBlocks.length}
-            </>
-          ) : pendingCount === 0 && contentBlocks.length > 0 ? (
-            "正文已全部翻译"
-          ) : (
-            "翻译正文"
-          )}
-        </button>
+        <div className="reading-toolbar-actions">
+          <button
+            className="btn btn-small"
+            onClick={() => setFontSize((size) => nextFontSize(size, -1))}
+            title="减小字号"
+          >
+            A-
+          </button>
+          <span className="reading-font-label">{fontSize}</span>
+          <button
+            className="btn btn-small"
+            onClick={() => setFontSize((size) => nextFontSize(size, 1))}
+            title="增大字号"
+          >
+            A+
+          </button>
+          <label className="reading-toggle">
+            <input
+              type="checkbox"
+              checked={showTranslation}
+              onChange={(event) => setShowTranslation(event.target.checked)}
+            />
+            译文
+          </label>
+          <button
+            className="btn btn-primary btn-small"
+            onClick={() => {
+              void (async () => {
+                await onTranslateContent();
+                setShowTranslation(true);
+              })();
+            }}
+            disabled={batchRunning || pendingCount === 0 || loading || !structure}
+            title="只翻译标题、章节、摘要、正文与注释，不含参考文献与图表说明"
+          >
+            {batchRunning ? (
+              <>
+                <span className="spinner" /> 翻译中 {doneCount}/{contentBlocks.length}
+              </>
+            ) : pendingCount === 0 && contentBlocks.length > 0 ? (
+              "正文已全部翻译"
+            ) : (
+              "翻译正文"
+            )}
+          </button>
+        </div>
       </div>
 
-      {structure.blocks.length === 0 && (
-        <div className="empty-hint">未解析到可阅读的内容块，请回到原文视图查看</div>
-      )}
-
-      {structure.blocks.map((block) => {
-        const translation = translations[block.id];
-        return (
-          <section key={block.id} className={`reading-block reading-kind-${block.kind}`}>
-            <div className="reading-block-meta">
-              <span className={`block-kind block-kind-${block.kind}`}>
-                {BLOCK_KIND_LABELS[block.kind]}
-                {block.kind === "heading" && block.level > 0 ? ` H${block.level}` : ""}
-              </span>
-              {block.page != null && <span className="block-page">第 {block.page} 页</span>}
-            </div>
-            <div className="reading-block-text">{block.text}</div>
-            {translation?.status === "loading" && (
-              <div className="reading-translating">
-                <span className="spinner" /> 正在翻译…
-              </div>
-            )}
-            {translation?.status === "error" && (
-              <div className="reading-error">翻译失败：{translation.message ?? "未知错误"}</div>
-            )}
-            {translation?.status === "done" && translation.result && (
-              <div className="reading-translated">{translation.result.result}</div>
-            )}
-            <div className="reading-block-actions">
-              <button
-                className="btn btn-small"
-                onClick={() => onTranslateBlock(block)}
-                disabled={translation?.status === "loading" || batchRunning}
-              >
-                {translation?.status === "done"
-                  ? "重新翻译"
-                  : translation?.status === "error"
-                    ? "重试"
-                    : "翻译此块"}
+      {loading || !structure ? (
+        <div className="bilingual-loading">
+          <span className="spinner spinner-lg" />
+          <div>
+            {extractProgress
+              ? `正在识别版面… ${extractProgress.done}/${extractProgress.total} 页`
+              : "正在解析文档…"}
+          </div>
+        </div>
+      ) : (
+        <>
+          {structure.notice && noticeOpen && (
+            <div className="reading-notice">
+              {structure.notice}{" "}
+              <button className="btn-link" onClick={() => setNoticeOpen(false)}>
+                关闭
               </button>
             </div>
-          </section>
-        );
-      })}
+          )}
+          {structure.blocks.length === 0 ? (
+            <div className="empty-hint">没有可阅读的文本（可能是扫描版 PDF）。</div>
+          ) : (
+            <article
+              className="reading-article"
+              style={{ "--reading-font-size": `${fontSize}px` } as CSSProperties}
+            >
+              {structure.blocks.map((block) => {
+                if (block.kind === "figure") {
+                  if (!block.image) return null;
+                  return (
+                    <figure key={block.id} className="reading-figure">
+                      <img src={block.image} alt={block.caption ?? ""} loading="lazy" />
+                      {block.caption && <figcaption>{block.caption}</figcaption>}
+                    </figure>
+                  );
+                }
+                if (block.kind === "title") {
+                  return (
+                    <div key={block.id}>
+                      <h1 className="reading-text">{block.text}</h1>
+                      {translationFor(block)}
+                    </div>
+                  );
+                }
+                if (block.kind === "heading") {
+                  return (
+                    <div key={block.id}>
+                      {block.level <= 1 ? (
+                        <h2 className="reading-text">{block.text}</h2>
+                      ) : (
+                        <h3 className="reading-text">{block.text}</h3>
+                      )}
+                      {translationFor(block)}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={block.id} className={`reading-block reading-kind-${block.kind}`}>
+                    <p className="reading-text">{block.text}</p>
+                    {translationFor(block)}
+                  </div>
+                );
+              })}
+            </article>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -316,7 +316,7 @@ export default function App() {
     try {
       const parsed = await extract();
       if (activeDocIdRef.current !== doc.id) return;
-      if (parsed.blocks.length === 0) throw new Error("未解析到可阅读的内容块");
+      if (parsed.blocks.length === 0 && !parsed.notice) throw new Error("未解析到可阅读的内容块");
       readingCache.current.set(doc.id, { structure: parsed, translations: {} });
       setStructure(parsed);
     } catch (err) {
@@ -563,10 +563,11 @@ export default function App() {
                     title={activeDoc.title}
                     structure={structure}
                     loading={structureLoading}
+                    extractProgress={null}
                     translations={blockTranslations}
                     batchRunning={batchRunning}
                     onTranslateBlock={(block) => void translateBlock(block)}
-                    onTranslateContent={() => void translateContent()}
+                    onTranslateContent={() => translateContent()}
                   />
                 )}
               </>

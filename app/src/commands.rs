@@ -326,19 +326,19 @@ pub struct LayoutModelInfo {
 }
 
 #[tauri::command]
-pub async fn layout_model_info(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<LayoutModelInfo, String> {
+pub async fn layout_model_info(state: State<'_, AppState>) -> Result<LayoutModelInfo, String> {
     let path = state.model.layout_model_path();
-    let exists = path.is_file();
-    if exists {
-        app.asset_protocol_scope().allow_file(&path).map_err(err)?;
-    }
     Ok(LayoutModelInfo {
+        exists: path.is_file(),
         path: path.to_string_lossy().into_owned(),
-        exists,
     })
+}
+
+#[tauri::command]
+pub async fn read_layout_model(state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
+    let path = state.model.layout_model_path();
+    let bytes = std::fs::read(&path).map_err(err)?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 pub fn resolve_document_image_path(base: &Path, src: &str) -> Result<std::path::PathBuf, String> {

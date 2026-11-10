@@ -1,11 +1,12 @@
 import * as ort from "onnxruntime-web";
+import { readLayoutModel } from "../api";
 import { detectionToBox, letterboxGeometry, parseDetections } from "./geometry";
 import { MODEL_INPUT_SIZE, MODEL_PAD_VALUE } from "./types";
 import type { LayoutBox, Letterbox } from "./types";
 
 let sessionPromise: Promise<ort.InferenceSession> | null = null;
 
-export function loadLayoutSession(modelUrl: string): Promise<ort.InferenceSession> {
+export function loadLayoutSession(): Promise<ort.InferenceSession> {
   sessionPromise ??= (async () => {
     ort.env.wasm.wasmPaths = "/ort/";
     ort.env.wasm.numThreads = 1;
@@ -13,9 +14,9 @@ export function loadLayoutSession(modelUrl: string): Promise<ort.InferenceSessio
     // 作为 worker 脚本，等于把整个应用加载进 worker（无 document/window）而崩溃。
     // 关闭 proxy 走主线程单线程推理，不创建 worker，最稳妥。
     ort.env.wasm.proxy = false;
-    const response = await fetch(modelUrl);
-    if (!response.ok) throw new Error(`模型下载失败：HTTP ${response.status}`);
-    const bytes = await response.arrayBuffer();
+    // 通过 Tauri IPC 直接取模型字节（ArrayBuffer），不走 asset 协议 fetch，
+    // 避免资产作用域/跨域导致的“模型下载失败”。
+    const bytes = await readLayoutModel();
     return ort.InferenceSession.create(new Uint8Array(bytes), {
       executionProviders: ["wasm"],
     });

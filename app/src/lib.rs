@@ -75,6 +75,7 @@ pub fn run() {
             commands::start_model,
             commands::stop_model,
             commands::layout_model_info,
+            commands::read_layout_model,
             commands::read_document_image,
         ])
         .build(tauri::generate_context!())

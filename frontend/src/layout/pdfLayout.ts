@@ -85,9 +85,9 @@ function paragraphLineCounts(lines: TextLine[], tops: number[]): number[] {
 
 export async function extractPdfStructureWithLayout(
   doc: PDFDocumentProxy,
-  options: { modelUrl: string; onProgress?: (done: number, total: number) => void },
+  options: { onProgress?: (done: number, total: number) => void },
 ): Promise<DocumentStructure> {
-  const session = await loadLayoutSession(options.modelUrl);
+  const session = await loadLayoutSession();
   const collected: NewBlock[] = [];
   let removedLines = 0;
   let section: Section = "front";

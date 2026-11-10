@@ -62,6 +62,10 @@ export function layoutModelInfo(): Promise<LayoutModelInfo> {
   return invoke<LayoutModelInfo>("layout_model_info");
 }
 
+export function readLayoutModel(): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("read_layout_model");
+}
+
 export function readDocumentImage(id: string, src: string): Promise<string> {
   return invoke<string>("read_document_image", { id, src });
 }

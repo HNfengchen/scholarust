@@ -9,7 +9,6 @@ import { extractPdfStructure } from "../structure";
 import type { DocumentStructure, ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
 import * as api from "../api";
-import { convertFileSrc } from "../api";
 import { extractPdfStructureWithLayout } from "../layout/pdfLayout";
 import { flattenPdfOutline } from "../outline";
 import type { OutlineEntry, OutlineExtractor, PdfOutlineNode } from "../outline";
@@ -83,7 +82,6 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
               };
             }
             return await extractPdfStructureWithLayout(doc, {
-              modelUrl: convertFileSrc(info.path),
               onProgress,
             });
           } catch (err) {

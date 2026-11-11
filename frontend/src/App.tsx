@@ -15,6 +15,7 @@ import type {
   StructuredBlock,
   StructureExtractor,
 } from "./structure";
+import type { OutlineEntry } from "./outline";
 import type {
   BlockTranslation,
   Collection,
@@ -73,6 +74,7 @@ export default function App() {
   const extractorRef = useRef<ParagraphExtractor | null>(null);
   const structureRef = useRef<StructureExtractor | null>(null);
   const readingStructureRef = useRef<ReadingStructureExtractor | null>(null);
+  const outlineRef = useRef<(() => Promise<OutlineEntry[]>) | null>(null);
   const readerHostRef = useRef<HTMLDivElement>(null);
   const readingCache = useRef(new Map<string, ReadingCache>());
   const activeDocIdRef = useRef<string | null>(null);
@@ -482,6 +484,7 @@ export default function App() {
       content,
       extractorRef,
       structureRef,
+      outlineRef,
       readerHostRef,
       selection,
       services,
@@ -574,6 +577,7 @@ export default function App() {
                     extractorRef={extractorRef}
                     structureRef={structureRef}
                     readingStructureRef={readingStructureRef}
+                    outlineRef={outlineRef}
                     onError={showError}
                     onSelection={handleSelectionText}
                   />

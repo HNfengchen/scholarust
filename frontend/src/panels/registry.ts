@@ -1,5 +1,6 @@
 import type { ComponentType, MutableRefObject, RefObject } from "react";
 import type { StructureExtractor } from "../structure";
+import type { OutlineEntry } from "../outline";
 import type {
   DocumentContent,
   DocumentInfo,
@@ -15,6 +16,7 @@ export interface PanelContext {
   content: DocumentContent | null;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
+  outlineRef: MutableRefObject<(() => Promise<OutlineEntry[]>) | null>;
   readerHostRef: RefObject<HTMLDivElement>;
   selection: SelectionTranslation | null;
   services: ServiceInfo[];

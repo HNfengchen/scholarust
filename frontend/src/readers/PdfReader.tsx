@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { getDocument, GlobalWorkerOptions, TextLayer } from "pdfjs-dist";
-import type { PDFDocumentLoadingTask } from "pdfjs-dist";
+import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { extractPdfParagraphs } from "../paragraphs";
 import { extractPdfStructure } from "../structure";
 import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
 import { extractPdfStructureReflowed } from "../layout/pdfStructure";
+import { flattenPdfOutline } from "../outline";
+import type { OutlineEntry, PdfOutlineItem } from "../outline";
 import type { ParagraphExtractor } from "../types";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -16,7 +18,41 @@ interface Props {
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
+  outlineRef: MutableRefObject<(() => Promise<OutlineEntry[]>) | null>;
   onError: (message: string) => void;
+}
+
+type RawOutlineItem = { title: string; dest: unknown; items?: RawOutlineItem[] };
+
+// pdf.js hands out raw destinations; turn them into 0-based page indexes first.
+async function resolveOutline(
+  doc: PDFDocumentProxy,
+  items: RawOutlineItem[],
+): Promise<PdfOutlineItem[]> {
+  const resolved: PdfOutlineItem[] = [];
+  for (const item of items) {
+    let dest = item.dest;
+    if (typeof dest === "string") {
+      dest = await doc.getDestination(dest).catch(() => null);
+    }
+    let pageNumber: number | undefined;
+    if (Array.isArray(dest) && dest.length > 0) {
+      const first = dest[0];
+      const index =
+        typeof first === "number"
+          ? first
+          : await doc
+              .getPageIndex(first as Parameters<PDFDocumentProxy["getPageIndex"]>[0])
+              .catch(() => null);
+      if (typeof index === "number") pageNumber = index;
+    }
+    resolved.push({
+      title: item.title,
+      dest: pageNumber == null ? null : { type: "page-ref", pageNumber },
+      items: item.items ? await resolveOutline(doc, item.items) : undefined,
+    });
+  }
+  return resolved;
 }
 
 export default function PdfReader({
@@ -24,6 +60,7 @@ export default function PdfReader({
   extractorRef,
   structureRef,
   readingStructureRef,
+  outlineRef,
   onError,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,6 +91,11 @@ export default function PdfReader({
       // The reading mode reflows the pages instead of guessing the structure.
       readingStructureRef.current = async (onProgress) =>
         extractPdfStructureReflowed(doc, { onProgress });
+      outlineRef.current = async () => {
+        const outline = (await doc.getOutline()) as RawOutlineItem[] | null;
+        if (!outline?.length) return [];
+        return flattenPdfOutline(await resolveOutline(doc, outline));
+      };
       const available = Math.max(container.clientWidth - 48, 320);
       for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
         if (cancelled) return;
@@ -108,10 +150,11 @@ export default function PdfReader({
       extractorRef.current = null;
       structureRef.current = null;
       readingStructureRef.current = null;
+      outlineRef.current = null;
       container.replaceChildren();
       void loadingTask?.destroy();
     };
-  }, [url, extractorRef, structureRef, readingStructureRef, onError]);
+  }, [url, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
 
   return (
     <div className="pdf-reader">

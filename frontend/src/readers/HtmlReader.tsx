@@ -4,6 +4,9 @@ import mammoth from "mammoth";
 import { extractHtmlParagraphs } from "../paragraphs";
 import { extractHtmlStructure } from "../structure";
 import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
+import { outlineEntriesFromHeadings } from "../outline";
+import type { OutlineEntry } from "../outline";
+import { collectHeadings } from "../panels/readerDom";
 import type { ParagraphExtractor } from "../types";
 
 interface Props {
@@ -12,6 +15,7 @@ interface Props {
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
+  outlineRef: MutableRefObject<(() => Promise<OutlineEntry[]>) | null>;
   onError: (message: string) => void;
 }
 
@@ -21,6 +25,7 @@ export default function HtmlReader({
   extractorRef,
   structureRef,
   readingStructureRef,
+  outlineRef,
   onError,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,6 +42,8 @@ export default function HtmlReader({
       structureRef.current = async () => extractHtmlStructure(container);
       // The html extractor already returns a promise, so it reads as it is.
       readingStructureRef.current = structureRef.current;
+      outlineRef.current = async () =>
+        outlineEntriesFromHeadings(collectHeadings(container));
     };
 
     if (docxUrl) {
@@ -67,8 +74,9 @@ export default function HtmlReader({
       extractorRef.current = null;
       structureRef.current = null;
       readingStructureRef.current = null;
+      outlineRef.current = null;
     };
-  }, [html, docxUrl, extractorRef, structureRef, readingStructureRef, onError]);
+  }, [html, docxUrl, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
 
   return (
     <div className="html-reader-wrap">

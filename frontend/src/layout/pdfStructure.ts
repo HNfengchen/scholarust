@@ -1,3 +1,4 @@
+import { getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { itemsFromTextContent } from "./pdfText";
 import type { PdfJsTextItem, TextLine } from "./types";
@@ -396,30 +397,32 @@ export async function extractPdfStructureReflowed(
   options: {
     onProgress?: (done: number, total: number) => void;
     signal?: AbortSignal;
+    /** Force the number of parallel workers; omitted picks one by page count. */
+    shards?: number;
   } = {},
 ): Promise<DocumentStructure> {
   const total = doc.numPages;
-  const pages: PageData[] = [];
+  const pages: PageData[] = new Array(total);
   let skipped = 0;
+  let done = 0;
+  const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
 
-  for (let number = 1; number <= total; number++) {
-    if (options.signal?.aborted) throw new DOMException("aborted", "AbortError");
+  const extractPage = async (number: number, source: PDFDocumentProxy): Promise<void> => {
     let page;
     let content;
     try {
-      page = await doc.getPage(number);
+      page = await source.getPage(number);
       content = await page.getTextContent();
     } catch (err) {
       // One corrupt page must not cost the other 299.
       console.warn(`第 ${number} 页文字提取失败`, err);
-      pages.push({
+      pages[number - 1] = {
         pageNumber: number,
         height: 0,
         columns: { gutter: null, spanning: [], left: [], right: [] },
         images: [],
-      });
-      options.onProgress?.(number, total);
-      continue;
+      };
+      return;
     }
     const viewport = page.getViewport({ scale: 1 });
     const items = itemsFromTextContent(
@@ -434,13 +437,59 @@ export async function extractPdfStructureReflowed(
     } catch (err) {
       console.warn(`第 ${number} 页图片提取失败`, err);
     }
-    pages.push({
+    pages[number - 1] = {
       pageNumber: number,
       height: viewport.height,
       columns: orderPageColumns(items, viewport.width, viewport.height),
       images,
-    });
-    options.onProgress?.(number, total);
+    };
+  };
+
+  // Pages are independent, so they are extracted in parallel and each result is
+  // written back by page number: the array stays in page order and everything
+  // downstream is exactly the sequential result. A single pdf.js worker parses
+  // one page at a time, so a document with enough pages is split across several
+  // workers (each loads its own copy of the file, in parallel); a very short one
+  // stays on this document and only overlaps the main-thread bitmap painting
+  // with the worker's parsing.
+  const autoShards = total >= 8 ? Math.min(cores, 8, Math.floor(total / 2)) : 1;
+  let shardCount = options.shards ?? autoShards;
+  let useShards = shardCount >= 2 && typeof doc.getData === "function";
+  let shards: PDFDocumentProxy[] = [];
+  if (useShards) {
+    if (options.signal?.aborted) throw new DOMException("aborted", "AbortError");
+    const data = await doc.getData();
+    // Bound how many copies of the file are held at once, so a very large PDF
+    // cannot exhaust memory no matter how many cores the machine has.
+    const byMemory = Math.floor((128 * 1024 * 1024) / Math.max(1, data.length));
+    shardCount = Math.min(shardCount, Math.max(1, byMemory));
+    if (shardCount >= 2) {
+      shards = await Promise.all(
+        Array.from({ length: shardCount }, () => getDocument({ data: data.slice() }).promise),
+      );
+    } else {
+      useShards = false;
+    }
+  }
+  const sourceFor = (number: number): PDFDocumentProxy =>
+    useShards ? shards[(number - 1) % shards.length] : doc;
+  const workerCount = useShards ? shards.length : Math.min(8, Math.max(1, cores));
+
+  let next = 1;
+  const runner = async (): Promise<void> => {
+    for (;;) {
+      if (options.signal?.aborted) throw new DOMException("aborted", "AbortError");
+      const number = next++;
+      if (number > total) return;
+      await extractPage(number, sourceFor(number));
+      done++;
+      options.onProgress?.(done, total);
+    }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(workerCount, total) }, runner));
+  } finally {
+    if (useShards) await Promise.all(shards.map((shard) => shard.destroy()));
   }
 
   const ordered = pages.map((page) => orderedLines(page.columns));

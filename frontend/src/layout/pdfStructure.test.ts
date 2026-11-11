@@ -7,10 +7,13 @@ import {
   isRunningNumber,
   mergeAcrossPages,
   normalizeRunningText,
+  referenceChunks,
   referenceText,
   repeatedBandTexts,
+  runningKey,
+  sortChunkEntries,
 } from "./pdfStructure";
-import type { PageLines } from "./pdfStructure";
+import type { KeptLine, PageLines } from "./pdfStructure";
 
 const HEIGHT = 800;
 
@@ -33,6 +36,17 @@ const block = (kind: StructuredBlock["kind"], text: string, page: number): Struc
 describe("normalizeRunningText", () => {
   it("trims and collapses the whitespace", () => {
     expect(normalizeRunningText("  12 \n  of  20 ")).toBe("12 of 20");
+  });
+});
+
+describe("runningKey", () => {
+  it("masks the digits, so the page numbers of the pages are one head", () => {
+    expect(runningKey("1 / 20")).toBe(runningKey("2 / 20"));
+    expect(runningKey("  12  ")).toBe("#");
+  });
+
+  it("keeps the words apart", () => {
+    expect(runningKey("Draft")).not.toBe(runningKey("Proof"));
   });
 });
 
@@ -72,8 +86,12 @@ describe("repeatedBandTexts", () => {
 
   it("finds the texts that run on at least 40% of the pages", () => {
     const repeated = repeatedBandTexts(pages(["1 / 5", "1 / 5", "1 / 5", "2 / 5", "3 / 5"]), 5);
-    expect(repeated.has("1 / 5")).toBe(true);
-    expect(repeated.has("2 / 5")).toBe(false);
+    expect(repeated.has("# / #")).toBe(true);
+  });
+
+  it("counts the page numbers of the pages as one head", () => {
+    const repeated = repeatedBandTexts(pages(["1 / 5", "2 / 5", "3 / 5", "4 / 5", "5 / 5"]), 5);
+    expect(repeated.has("# / #")).toBe(true);
   });
 
   it("needs the text on more than one page", () => {
@@ -95,7 +113,7 @@ describe("repeatedBandTexts", () => {
 
 describe("isRunningNumber", () => {
   it("drops a page number that runs on many pages", () => {
-    const repeated = new Set(["1 / 5"]);
+    const repeated = new Set(["# / #"]);
     expect(isRunningNumber(line(20, "1 / 5"), HEIGHT, repeated)).toBe(true);
   });
 
@@ -108,7 +126,7 @@ describe("isRunningNumber", () => {
   });
 
   it("keeps a page number in the body of the page", () => {
-    expect(isRunningNumber(line(400, "1 / 5"), HEIGHT, new Set(["1 / 5"]))).toBe(false);
+    expect(isRunningNumber(line(400, "1 / 5"), HEIGHT, new Set(["# / #"]))).toBe(false);
   });
 });
 
@@ -119,6 +137,50 @@ describe("referenceText", () => {
 
   it("leaves an entry without a marker alone", () => {
     expect(referenceText(null, "Smith. A paper.")).toBe("Smith. A paper.");
+  });
+});
+
+describe("referenceChunks", () => {
+  const kept = (page: number, column: number, text: string): KeptLine => ({
+    line: line(0, text),
+    page,
+    column,
+  });
+
+  it("splits the section into the columns of the pages", () => {
+    const chunks = referenceChunks([
+      kept(1, 0, "[1] Smith"),
+      kept(1, 0, "[2] Jones"),
+      kept(1, 1, "[3] Brown"),
+      kept(2, 0, "[4] Green"),
+    ]);
+    expect(chunks.map((chunk) => chunk.length)).toEqual([2, 1, 1]);
+    expect(chunks[1][0].line.text).toBe("[3] Brown");
+  });
+
+  it("keeps one chunk when the section runs through a page", () => {
+    const chunks = referenceChunks([kept(1, 0, "[1] Smith"), kept(1, 0, "[2] Jones")]);
+    expect(chunks).toHaveLength(1);
+  });
+});
+
+describe("sortChunkEntries", () => {
+  it("puts the numbered entries in the order of their number", () => {
+    const sorted = sortChunkEntries([
+      { label: "[3]", number: 3, text: "Third" },
+      { label: "[1]", number: 1, text: "First" },
+      { label: "[2]", number: 2, text: "Second" },
+    ]);
+    expect(sorted.map((entry) => entry.label)).toEqual(["[1]", "[2]", "[3]"]);
+  });
+
+  it("keeps an entry without a number in its place", () => {
+    const sorted = sortChunkEntries([
+      { label: null, number: null, text: "the tail of the first entry" },
+      { label: "[2]", number: 2, text: "Second" },
+    ]);
+    expect(sorted[0].text).toBe("the tail of the first entry");
+    expect(sorted[1].label).toBe("[2]");
   });
 });
 
@@ -163,5 +225,15 @@ describe("mergeAcrossPages", () => {
       block("paragraph", "and the second half", 1),
     ]);
     expect(merged).toHaveLength(2);
+  });
+
+  it("joins a reference entry that runs over a page break", () => {
+    const merged = mergeAcrossPages([
+      block("reference", "[1] Smith. A very long title that", 5),
+      block("reference", "runs on to the next page.", 6),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].text).toBe("[1] Smith. A very long title that runs on to the next page.");
+    expect(merged[0].page).toBe(5);
   });
 });

@@ -5,6 +5,7 @@ import { orderPageColumns } from "./order";
 import type { OrderedColumns } from "./order";
 import { bodySizeOf, headingLevelForLine, mergeLinesIntoParagraphs } from "./paragraphs";
 import { findReferenceSection, sortReferenceEntries, splitReferenceEntries } from "./references";
+import type { ReferenceEntry } from "./references";
 import { extractPageImages } from "./pageImages";
 import type { PlacedImage } from "./pageImages";
 import { sectionForHeading } from "../structure";
@@ -37,6 +38,17 @@ export function normalizeRunningText(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * The key a running head is counted by.
+ *
+ * The digits are masked, so the page numbers of the pages ("1 / 20", "2 / 20",
+ * ...) are one running head and not one per page. Without the mask the head
+ * would never be seen on enough pages to be dropped.
+ */
+export function runningKey(text: string): string {
+  return normalizeRunningText(text).replace(/\d+/g, "#");
+}
+
 /** True for the page-number shapes a running head may carry. */
 export function isPageNumberText(text: string): boolean {
   return PAGE_NUMBER_RE.test(normalizeRunningText(text));
@@ -53,14 +65,15 @@ export function isBandLine(line: TextLine, pageHeight: number): boolean {
  * The texts that sit in the page band on at least 40% of the pages.
  *
  * A running head can only be told from body text once every page has been
- * seen, so the count is made over the whole document.
+ * seen, so the count is made over the whole document. The keys are masked, so
+ * the page numbers of the pages count as one head.
  */
 export function repeatedBandTexts(pages: PageLines[], numPages: number): Set<string> {
   const pagesOf = new Map<string, Set<number>>();
   for (const page of pages) {
     for (const line of page.lines) {
       if (!isBandLine(line, page.height)) continue;
-      const key = normalizeRunningText(line.text);
+      const key = runningKey(line.text);
       if (!key) continue;
       let numbers = pagesOf.get(key);
       if (!numbers) {
@@ -90,8 +103,8 @@ export function isRunningNumber(
   repeated: Set<string>,
 ): boolean {
   if (!isBandLine(line, pageHeight)) return false;
-  const key = normalizeRunningText(line.text);
-  return repeated.has(key) && isPageNumberText(key);
+  if (!isPageNumberText(line.text)) return false;
+  return repeated.has(runningKey(line.text));
 }
 
 /**
@@ -131,6 +144,61 @@ export function referenceText(label: string | null, text: string): string {
   return label ? `${label} ${text}` : text;
 }
 
+/** A line of the document, with the place it sits on. */
+export interface KeptLine {
+  line: TextLine;
+  /** The page the line is on, counted from 1. */
+  page: number;
+  /** 0 for the head of the page (the spanning titles and the left column), 1 for the right column. */
+  column: number;
+}
+
+/** A reference entry, with the page it is on. */
+export interface PlacedEntry extends ReferenceEntry {
+  page: number;
+}
+
+/**
+ * The lines of the reference section, split into the parts that are read one
+ * after the other.
+ *
+ * The columns of a page are read one after the other, and the pages after
+ * that, so the parts are the columns of the pages. The entries of a column are
+ * split apart from the entries of the other column, or the margin of one
+ * column would swallow the entries of the other one.
+ */
+export function referenceChunks(lines: KeptLine[]): KeptLine[][] {
+  const chunks: KeptLine[][] = [];
+  for (const entry of lines) {
+    const last = chunks[chunks.length - 1];
+    if (last && last[0].page === entry.page && last[0].column === entry.column) {
+      last.push(entry);
+    } else {
+      chunks.push([entry]);
+    }
+  }
+  return chunks;
+}
+
+/**
+ * The entries of one part, the numbered ones in the order of their number.
+ *
+ * The entries without a number keep the place they have: they are the tail of
+ * a wrapped entry and have to stay behind the entry they belong to.
+ */
+export function sortChunkEntries(entries: ReferenceEntry[]): ReferenceEntry[] {
+  const slots: number[] = [];
+  entries.forEach((entry, index) => {
+    if (entry.number !== null) slots.push(index);
+  });
+  const numbered = sortReferenceEntries(entries.filter((entry) => entry.number !== null));
+  const sorted = [...entries];
+  slots.forEach((slot, index) => {
+    sorted[slot] = numbered[index];
+  });
+  return sorted;
+}
+
 interface PageData {
   pageNumber: number;
   height: number;
@@ -152,12 +220,15 @@ interface BuildContext {
   headingSeen: boolean;
 }
 
-/** The lines of a page in reading order: the head first, then the right column. */
-function orderedLines(columns: OrderedColumns): TextLine[] {
+/** The lines of a page in reading order, with the column they sit in. */
+function orderedLines(columns: OrderedColumns): { line: TextLine; column: number }[] {
   const head = [...columns.spanning, ...columns.left].sort(
     (a, b) => a.baseline - b.baseline || a.x - b.x,
   );
-  return [...head, ...columns.right];
+  return [
+    ...head.map((line) => ({ line, column: 0 })),
+    ...columns.right.map((line) => ({ line, column: 1 })),
+  ];
 }
 
 /** Where an element sits on the page: a line by its baseline, an image by its middle. */
@@ -311,16 +382,6 @@ function toBlock(item: PageItem, page: number, context: BuildContext): Structure
   return { id: 0, kind: kindForSection(context.section), text, page, level: 0 };
 }
 
-/** The page a global line index belongs to. */
-function pageOfIndex(offsets: number[], index: number): number {
-  let page = 0;
-  for (let i = 0; i < offsets.length; i++) {
-    if (offsets[i] > index) break;
-    page = i;
-  }
-  return page + 1;
-}
-
 /**
  * Reflow a PDF into one continuous reading structure.
  *
@@ -363,42 +424,77 @@ export async function extractPdfStructureReflowed(
     options.onProgress?.(number, total);
   }
 
-  const pageLines: PageLines[] = pages.map((page) => ({
+  const ordered = pages.map((page) => orderedLines(page.columns));
+  const pageLines: PageLines[] = pages.map((page, index) => ({
     pageNumber: page.pageNumber,
     height: page.height,
-    lines: orderedLines(page.columns),
+    lines: ordered[index].map((entry) => entry.line),
   }));
   const bodySize = bodySizeOf(pageLines.flatMap((page) => page.lines));
   const repeated = repeatedBandTexts(pageLines, total);
 
   // The lines that survive the running head, per page and as one list.
-  const keptByPage: TextLine[][] = [];
+  const keptByPage: KeptLine[][] = [];
   const offsets: number[] = [];
-  const allKept: TextLine[] = [];
+  const allKept: KeptLine[] = [];
   let removedLines = 0;
-  for (const page of pageLines) {
-    const kept = page.lines.filter((line) => !isRunningNumber(line, page.height, repeated));
-    removedLines += page.lines.length - kept.length;
+  for (let index = 0; index < pages.length; index++) {
+    const page = pages[index];
+    const kept: KeptLine[] = [];
+    for (const entry of ordered[index]) {
+      if (isRunningNumber(entry.line, page.height, repeated)) {
+        removedLines++;
+        continue;
+      }
+      kept.push({ line: entry.line, page: page.pageNumber, column: entry.column });
+    }
     offsets.push(allKept.length);
     keptByPage.push(kept);
     allKept.push(...kept);
   }
 
   // The reference section is a part of the document, not of a page, so it is
-  // found over all lines at once and its entries may run across a page break.
-  const referenceRange = findReferenceSection(allKept, bodySize);
+  // found over all lines at once. Its entries are split per column of a page,
+  // so that the entries of a two column bibliography keep their own markers.
+  const referenceRange = findReferenceSection(
+    allKept.map((entry) => entry.line),
+    bodySize,
+  );
   const referenceBlocks: StructuredBlock[] = [];
   if (referenceRange) {
-    const entries = sortReferenceEntries(
-      splitReferenceEntries(allKept.slice(referenceRange.start + 1, referenceRange.end), bodySize),
-    );
-    const page = pageOfIndex(offsets, referenceRange.start);
+    const entries: PlacedEntry[] = [];
+    const chunks = referenceChunks(allKept.slice(referenceRange.start + 1, referenceRange.end));
+    for (const chunk of chunks) {
+      const chunkEntries = sortChunkEntries(
+        splitReferenceEntries(
+          chunk.map((entry) => entry.line),
+          bodySize,
+        ),
+      ).map((entry) => ({ ...entry, page: chunk[0].page }));
+      // An entry that runs into the next column of the same page is joined
+      // here; one that runs over a page break is joined when the blocks are
+      // built, where the pages are known.
+      const previous = entries[entries.length - 1];
+      const first = chunkEntries[0];
+      if (
+        previous &&
+        first &&
+        previous.page === first.page &&
+        first.label === null &&
+        !TERMINAL_PUNCT.test(previous.text.trim()) &&
+        CONTINUATION_START.test(first.text.trim())
+      ) {
+        previous.text = `${previous.text} ${first.text.trim()}`;
+        chunkEntries.shift();
+      }
+      entries.push(...chunkEntries);
+    }
     for (const entry of entries) {
       referenceBlocks.push({
         id: 0,
         kind: "reference",
         text: referenceText(entry.label, entry.text),
-        page,
+        page: entry.page,
         level: 0,
       });
     }
@@ -410,7 +506,7 @@ export async function extractPdfStructureReflowed(
 
   for (let index = 0; index < pages.length; index++) {
     const page = pages[index];
-    const keptLines = keptByPage[index];
+    const keptLines = keptByPage[index].map((entry) => entry.line);
     const elements = pageElements(page);
 
     // Where the figures sit, counted in the lines that precede them. The

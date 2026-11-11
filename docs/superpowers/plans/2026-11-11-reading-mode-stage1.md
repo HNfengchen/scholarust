@@ -434,15 +434,18 @@ git commit -m "feat: extract pdf text items and group them into lines"
 
 ---
 
-### Task 5: XY-cut 阅读顺序
+### Task 5: 双栏检测与阅读顺序
 
 **Files:**
 - Create: `frontend/src/layout/order.ts`
 - Create: `frontend/src/layout/order.test.ts`
 
 **Interfaces:**
-- Produces: `orderRects<T extends LayoutRect>(items: T[], pageWidth: number, pageHeight: number): T[]`
-- 约定：传入的 `LayoutRect.y` 是元素**顶边**（文字用 `baseline - size`），`h` 是高度。
+- Consumes: `frontend/src/layout/pdfText.ts` 的 `PdfTextItem`、`TextLine`、`groupItemsIntoLines`
+- Produces: `GutterResult { gutter: [number, number] | null; spanning: Set<number> }`
+- Produces: `detectGutter(items: PdfTextItem[], pageWidth: number, pageHeight: number, bodySize?: number): GutterResult`
+- Produces: `orderPageLines(items: PdfTextItem[], pageWidth: number, pageHeight: number, bodySize?: number): TextLine[]`
+- 约定：`PdfTextItem.x` 是左边距，`baseline` 是基线（页面坐标，从页面顶部算），`width` 是宽度。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -450,36 +453,62 @@ git commit -m "feat: extract pdf text items and group them into lines"
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { orderRects } from "./order";
+import { detectGutter, orderPageLines } from "./order";
+import type { PdfTextItem } from "./pdfText";
 
-const rect = (x: number, y: number, w: number, h: number) => ({ x, y, w, h });
+const item = (x: number, baseline: number, width: number, size = 10, str = "x"): PdfTextItem => ({
+  x, baseline, width, size, str,
+});
+const column = (x: number, baselines: number[]) => baselines.map((b) => item(x, b, 140));
 
-describe("orderRects", () => {
-  it("reads two columns left then right", () => {
-    const ordered = orderRects(
-      [rect(0, 100, 150, 12), rect(250, 100, 150, 12), rect(0, 200, 150, 12), rect(250, 200, 150, 12)],
-      400, 500,
-    );
-    expect(ordered.map((r) => r.x)).toEqual([0, 0, 250, 250]);
+describe("detectGutter", () => {
+  it("finds the gutter between two columns", () => {
+    const items = [...column(10, [100, 120, 140, 160]), ...column(250, [100, 120, 140, 160])];
+    const result = detectGutter(items, 400, 500, 10);
+    expect(result.gutter).not.toBeNull();
+    expect(result.gutter![0]).toBe(150);
+    expect(result.gutter![1]).toBe(250);
   });
 
-  it("puts a spanning title before both columns", () => {
-    const ordered = orderRects(
-      [rect(0, 100, 150, 12), rect(250, 100, 150, 12), rect(0, 20, 400, 18)],
-      400, 500,
-    );
-    expect(ordered[0].w).toBe(400);
-    expect(ordered.map((r) => r.x)).toEqual([0, 0, 250]);
+  it("does not mistake word spacing for a gutter", () => {
+    const items = [item(10, 100, 30), item(43, 100, 30), item(76, 100, 30)];
+    expect(detectGutter(items, 400, 500, 10).gutter).toBeNull();
   });
 
-  it("sorts a single column top to bottom", () => {
-    const ordered = orderRects([rect(0, 300, 400, 12), rect(0, 100, 400, 12), rect(0, 200, 400, 12)], 400, 500);
-    expect(ordered.map((r) => r.y)).toEqual([100, 200, 300]);
+  it("marks a centred title as spanning instead of blocking the gutter", () => {
+    const items = [
+      ...column(10, [100, 120, 140, 160]),
+      ...column(250, [100, 120, 140, 160]),
+      item(170, 60, 60, 14, "Title"),
+    ];
+    const result = detectGutter(items, 400, 500, 10);
+    expect(result.gutter).not.toBeNull();
+    expect(result.spanning.size).toBe(1);
+  });
+});
+
+describe("orderPageLines", () => {
+  it("reads the left column before the right column", () => {
+    const items = [...column(10, [100, 120]), ...column(250, [100, 120])];
+    const lines = orderPageLines(items, 400, 500, 10);
+    expect(lines.map((l) => l.x)).toEqual([10, 10, 250, 250]);
   });
 
-  it("splits horizontally when there is no vertical gutter", () => {
-    const ordered = orderRects([rect(0, 300, 400, 12), rect(0, 100, 400, 12)], 400, 500);
-    expect(ordered.map((r) => r.y)).toEqual([100, 300]);
+  it("puts a spanning title first", () => {
+    const items = [
+      ...column(10, [100, 120]),
+      ...column(250, [100, 120]),
+      item(170, 60, 60, 14, "Title"),
+    ];
+    const lines = orderPageLines(items, 400, 500, 10);
+    expect(lines[0].text).toBe("Title");
+    expect(lines.map((l) => l.x)).toEqual([170, 10, 10, 250, 250]);
+  });
+
+  it("sorts a single column by baseline", () => {
+    const items = [item(10, 200, 300), item(10, 100, 300)];
+    const lines = orderPageLines(items, 400, 500, 10);
+    expect(lines.map((l) => l.baseline)).toEqual([100, 200]);
   });
 });
 ```
@@ -491,25 +520,31 @@ Expected: 失败，模块不存在。
 
 - [ ] **Step 3: 实现 `order.ts`**
 
-递归 `orderRects(items, pageWidth, pageHeight)`：
+`detectGutter(items, pageWidth, pageHeight, bodySize)`：
 
-1. `items.length <= 1` 返回原数组。
-2. **垂直切分优先**：候选 = `w <= 0.75 * pageWidth` 的元素；对候选做 x 投影（合并区间），找最大空白间隙，条件 `gap >= 0.04 * pageWidth`。
-   - 命中：以间隙中点 `c` 分类——满足 `x < c && x + w > c` 的元素为**通栏元素**，单独一组按 `y` 排序并放在本层最前；其余按中心点分左组（中心 ≤ c）与右组；**先左后右**递归。
-3. 否则**水平切分**：对全部元素做 y 投影，找 `gap >= 0.03 * pageHeight` 的最大间隙，切成上/下两组，先上后下递归。
-4. 都不成立：按 `(y, x)` 排序。
-5. 任何一次切分产生空组时放弃该次切分，退回按 `(y, x)` 排序（防死循环）。
+1. `bodySize` 缺省取所有 item `size` 的中位数（四舍五入到 0.5）。
+2. 正文带 = `baseline` 落在 `[0.08 * pageHeight, 0.92 * pageHeight]` 的 item；其余忽略。
+3. **覆盖直方图**：以 1pt 为一格覆盖 `[0, pageWidth]`，每个正文 item 给 `[x, x + width]` 区间内的格子加 1。
+4. `maxCoverage` = 最大格值；`lowThreshold = max(1, floor(0.15 * maxCoverage))`（标题等少数 item 横跨栏缝时仍能把栏缝识别出来）。
+5. 在**最左与最右被覆盖格之间**找连续的低覆盖段（每格 ≤ `lowThreshold`）；取最宽的一段，其宽度需 ≥ `minGap = max(0.02 * pageWidth, 1.2 * bodySize)`（栏缝通常只有页宽的 2–4%，用页宽比例做阈值会漏判）。
+6. 命中：栏缝为 `[g0, g1]`；`spanning` = 满足 `x < g1 && x + width > g0` 的 item 集合；否则 `gutter = null`、`spanning` 为空集。
+
+`orderPageLines(items, pageWidth, pageHeight, bodySize)`：
+
+1. 单栏（`gutter === null`）：全部 item 用 `groupItemsIntoLines` 聚成行，按 `(baseline, x)` 排序。
+2. 双栏：左栏 item = `x + width <= g0`；右栏 item = `x >= g1`；其余为通栏 item。三组各自 `groupItemsIntoLines`。
+3. 输出 = **通栏行与左栏行按 `baseline` 归并**（页首标题因此排在最前），**再整体接上右栏行**。
 
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `npm --prefix frontend run test -- order.test`
-Expected: 4 passed。
+Expected: 6 passed。
 
 - [ ] **Step 5: 提交**
 
 ```bash
 git add frontend/src/layout/order.ts frontend/src/layout/order.test.ts
-git commit -m "feat: add xy-cut reading order with spanning elements"
+git commit -m "feat: detect two column gutter and order page lines"
 ```
 
 ---

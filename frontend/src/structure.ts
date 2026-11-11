@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { Rendition } from "epubjs";
+import { toImageDataUrl } from "./layout/images";
 
 export type BlockKind =
   | "title"
@@ -425,11 +426,45 @@ export async function extractPdfStructure(doc: PDFDocumentProxy): Promise<Docume
   return { blocks, removedLines: removed };
 }
 
-const HTML_BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,figcaption,aside";
+const HTML_BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,figcaption,aside,figure,img";
 const FOOTNOTE_SELECTOR =
   '[epub\\:type~="footnote"],[epub\\:type~="rearnote"],[role="doc-footnote"],[role="doc-endnote"],.footnote,.footnotes,#footnotes';
 
-export function extractHtmlStructure(root: ParentNode): DocumentStructure {
+async function figureBlock(
+  element: HTMLElement,
+  id: number,
+  docId?: string,
+): Promise<StructuredBlock | null> {
+  const image = element.tagName.toLowerCase() === "img"
+    ? (element as HTMLImageElement)
+    : element.querySelector("img");
+  if (!image) return null;
+  const src = image.getAttribute("src") ?? "";
+  if (!src) return null;
+  const captionText = element.tagName.toLowerCase() === "figure"
+    ? element.querySelector("figcaption")?.textContent?.trim()
+    : "";
+  const caption = captionText || image.getAttribute("alt")?.trim() || undefined;
+  try {
+    return {
+      id,
+      kind: "figure",
+      text: caption ?? "",
+      page: null,
+      level: 0,
+      image: await toImageDataUrl(src, docId),
+      caption,
+    };
+  } catch (err) {
+    console.warn("read image failed", src, err);
+    return null;
+  }
+}
+
+export async function extractHtmlStructure(
+  root: ParentNode,
+  options?: { docId?: string },
+): Promise<DocumentStructure> {
   const matched = Array.from(root.querySelectorAll<HTMLElement>(HTML_BLOCK_SELECTOR));
   const topLevel = matched.filter(
     (element) => !matched.some((other) => other !== element && other.contains(element)),
@@ -439,9 +474,27 @@ export function extractHtmlStructure(root: ParentNode): DocumentStructure {
   let section: Section = "body";
   let titleSeen = false;
   for (const element of topLevel) {
-    const text = (element.innerText || element.textContent || "").trim();
-    if (!text) continue;
     const tag = element.tagName.toLowerCase();
+    if (tag === "figure" || tag === "img") {
+      const block = await figureBlock(element, nextId, options?.docId);
+      if (block) {
+        blocks.push(block);
+        nextId += 1;
+      }
+      continue;
+    }
+    const text = (element.innerText || element.textContent || "").trim();
+    if (!text) {
+      // Markdown renders a lone image as <p><img></p>; keep it as a figure.
+      if (element.querySelector("img")) {
+        const block = await figureBlock(element, nextId, options?.docId);
+        if (block) {
+          blocks.push(block);
+          nextId += 1;
+        }
+      }
+      continue;
+    }
     if (/^h[1-6]$/.test(tag)) {
       const level = Number(tag.slice(1));
       const isTitle = !titleSeen && level === 1;
@@ -470,10 +523,13 @@ export function extractHtmlStructure(root: ParentNode): DocumentStructure {
   return { blocks, removedLines: 0 };
 }
 
-export function extractEpubStructure(rendition: Rendition): DocumentStructure {
+export async function extractEpubStructure(
+  rendition: Rendition,
+  options?: { docId?: string },
+): Promise<DocumentStructure> {
   const contents = rendition.getContents();
   const first = Array.isArray(contents) ? contents[0] : contents;
   const document = first?.document;
   if (!document) return { blocks: [], removedLines: 0 };
-  return extractHtmlStructure(document);
+  return extractHtmlStructure(document, options);
 }

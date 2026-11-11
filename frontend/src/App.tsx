@@ -574,6 +574,7 @@ export default function App() {
                   <Reader
                     key={`${content.kind}:${content.path}`}
                     content={content}
+                    docId={activeDoc.id}
                     extractorRef={extractorRef}
                     structureRef={structureRef}
                     readingStructureRef={readingStructureRef}

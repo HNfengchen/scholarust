@@ -9,6 +9,7 @@ import HtmlReader from "../readers/HtmlReader";
 
 interface Props {
   content: DocumentContent;
+  docId: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -19,6 +20,7 @@ interface Props {
 
 export default function Reader({
   content,
+  docId,
   extractorRef,
   structureRef,
   readingStructureRef,
@@ -43,6 +45,7 @@ export default function Reader({
       return (
         <EpubReader
           url={url}
+          docId={docId}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
@@ -56,6 +59,7 @@ export default function Reader({
         <HtmlReader
           html={null}
           docxUrl={url}
+          docId={docId}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
@@ -68,6 +72,7 @@ export default function Reader({
         <HtmlReader
           html={content.html}
           docxUrl={null}
+          docId={docId}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}

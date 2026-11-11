@@ -11,6 +11,7 @@ import type { ParagraphExtractor } from "../types";
 
 interface Props {
   url: string;
+  docId: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -21,6 +22,7 @@ interface Props {
 
 export default function EpubReader({
   url,
+  docId,
   extractorRef,
   structureRef,
   readingStructureRef,
@@ -46,7 +48,7 @@ export default function EpubReader({
       const rendition = book.renderTo(container, { width: "100%", height: "100%" });
       renditionRef.current = rendition;
       extractorRef.current = async () => extractEpubParagraphs(rendition);
-      structureRef.current = async () => extractEpubStructure(rendition);
+      structureRef.current = async () => extractEpubStructure(rendition, { docId });
       // The epub extractor already returns a promise, so it reads as it is.
       readingStructureRef.current = structureRef.current;
       outlineRef.current = async () => {
@@ -79,7 +81,7 @@ export default function EpubReader({
       book?.destroy();
       container.replaceChildren();
     };
-  }, [url, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection]);
+  }, [url, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection]);
 
   return (
     <div className="epub-reader">

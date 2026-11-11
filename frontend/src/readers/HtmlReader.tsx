@@ -12,6 +12,7 @@ import type { ParagraphExtractor } from "../types";
 interface Props {
   html: string | null;
   docxUrl: string | null;
+  docId: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -22,6 +23,7 @@ interface Props {
 export default function HtmlReader({
   html,
   docxUrl,
+  docId,
   extractorRef,
   structureRef,
   readingStructureRef,
@@ -39,7 +41,7 @@ export default function HtmlReader({
 
     const register = () => {
       extractorRef.current = async () => extractHtmlParagraphs(container);
-      structureRef.current = async () => extractHtmlStructure(container);
+      structureRef.current = async () => extractHtmlStructure(container, { docId });
       // The html extractor already returns a promise, so it reads as it is.
       readingStructureRef.current = structureRef.current;
       outlineRef.current = async () =>
@@ -76,7 +78,7 @@ export default function HtmlReader({
       readingStructureRef.current = null;
       outlineRef.current = null;
     };
-  }, [html, docxUrl, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
+  }, [html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
 
   return (
     <div className="html-reader-wrap">

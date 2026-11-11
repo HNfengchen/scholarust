@@ -6,7 +6,7 @@ export type { PdfTextItem, TextLine };
 export function itemsFromTextContent(items: PdfJsTextItem[], pageHeight: number): PdfTextItem[] {
   const out: PdfTextItem[] = [];
   for (const item of items) {
-    if (!item.str) continue;
+    if (!item.str.trim()) continue;
     const t = item.transform;
     out.push({
       x: t[4],
@@ -42,18 +42,17 @@ export function groupItemsIntoLines(items: PdfTextItem[]): TextLine[] {
   const sorted = [...items].sort((a, b) => a.baseline - b.baseline || a.x - b.x);
   const lines: TextLine[] = [];
   let row: PdfTextItem[] = [];
-  let baselineSum = 0;
   let rowSize = 0;
 
   for (const item of sorted) {
-    if (row.length > 0 && Math.abs(item.baseline - baselineSum / row.length) > Math.max(1, rowSize * 0.35)) {
+    // The row keeps the baseline of its first item as a fixed reference, so the
+    // tolerance cannot widen as the row grows.
+    if (row.length > 0 && Math.abs(item.baseline - row[0].baseline) > Math.max(1, rowSize * 0.35)) {
       lines.push(buildLine(row));
       row = [];
-      baselineSum = 0;
       rowSize = 0;
     }
     row.push(item);
-    baselineSum += item.baseline;
     rowSize = Math.max(rowSize, item.size);
   }
   if (row.length > 0) lines.push(buildLine(row));

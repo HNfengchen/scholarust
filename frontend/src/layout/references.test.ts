@@ -69,6 +69,70 @@ describe("splitReferenceEntries", () => {
     expect(entries[1].label).toBeNull();
   });
 
+  it("keeps numbered entries apart from stray lines on the left", () => {
+    const lines = [
+      line(0, "Table 1: results", 0, 10),
+      line(12, "Table 2: results", 0, 10),
+      line(24, "Table 3: results", 0, 10),
+      line(36, "[1] Smith et al. Paper", 24, 10),
+      line(48, "[2] Jones. Paper", 24, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    expect(entries).toHaveLength(3);
+    expect(entries.map((e) => e.label)).toEqual([null, "[1]", "[2]"]);
+    expect(entries.map((e) => e.number)).toEqual([null, 1, 2]);
+  });
+
+  it("splits numbered entries that wrap over several lines", () => {
+    const lines = [
+      line(0, "[1] Smith et al. Paper", 24, 10),
+      line(12, "continued one", 40, 10),
+      line(24, "continued two", 40, 10),
+      line(36, "[2] Jones. Paper", 24, 10),
+      line(48, "continued three", 40, 10),
+      line(60, "continued four", 40, 10),
+      line(72, "[3] Third. Paper", 24, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    expect(entries).toHaveLength(3);
+    expect(entries.map((e) => e.label)).toEqual(["[1]", "[2]", "[3]"]);
+    expect(entries.map((e) => e.number)).toEqual([1, 2, 3]);
+    expect(entries[0].text).toContain("continued one");
+    expect(entries[1].text).toContain("continued three");
+    expect(entries[1].text).toContain("continued four");
+    expect(entries[2].text).toBe("Third. Paper");
+  });
+
+  it("does not open entries for label-shaped continuations of unnumbered entries", () => {
+    const lines = [
+      line(0, "Smith et al. Paper", 0, 10),
+      line(12, "2020. continued", 20, 10),
+      line(24, "Jones et al. Paper", 0, 10),
+      line(36, "2020. continued", 20, 10),
+      line(48, "Third et al. Paper", 0, 10),
+      line(60, "2020. continued", 20, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    expect(entries).toHaveLength(3);
+    expect(entries.map((e) => e.label)).toEqual([null, null, null]);
+    expect(entries[0].text).toContain("2020. continued");
+  });
+
+  it("does not read the year of an APA entry as its number", () => {
+    const lines = [
+      line(0, "Smith, J.", 0, 10),
+      line(12, "(2020). The title of the paper.", 20, 10),
+      line(24, "The rest of the reference.", 20, 10),
+      line(36, "Jones, A.", 0, 10),
+      line(48, "(2019). Another title.", 20, 10),
+      line(60, "The rest of it.", 20, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.label)).toEqual([null, null]);
+    expect(entries[0].text).toContain("(2020). The title of the paper.");
+  });
+
   it("collapses unnumbered entries that are not hanging-indented", () => {
     const lines = [line(0, "Smith et al. Paper", 0, 10), line(12, "Jones. Paper", 0, 10)];
     const entries = splitReferenceEntries(lines, 10);

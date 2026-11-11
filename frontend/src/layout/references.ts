@@ -39,31 +39,72 @@ export function findReferenceSection(lines: TextLine[], bodySize: number): { sta
   return { start, end };
 }
 
+/** The x of the next line that starts in another column, or null when there is none. */
+function nextColumnX(rows: TextLine[], from: number, tol: number): number | null {
+  for (let j = from + 1; j < rows.length; j++) {
+    if (Math.abs(rows[j].x - rows[from].x) > tol) return rows[j].x;
+  }
+  return null;
+}
+
+/** The lines of a section grouped into columns of near-equal x. */
+function columnsOf(rows: TextLine[], tol: number): { x: number; lines: number[] }[] {
+  const columns: { x: number; lines: number[] }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const column = columns.find((c) => Math.abs(c.x - rows[i].x) <= tol);
+    if (column) column.lines.push(i);
+    else columns.push({ x: rows[i].x, lines: [i] });
+  }
+  return columns;
+}
+
 /**
  * The left edge where the entry lines of a section start.
  *
- * The dominant (median) start x anchors the guess, so a single stray line or a single
- * hanging-indented continuation cannot define the margin; lines that look like entry starts
- * and sit at that edge refine it.
+ * A column whose lines step back to the left is a hanging indent, not the margin. Among the
+ * remaining columns the one that carries the entry numbers wins — but only with two or more
+ * of them, a single one is more likely a wrapped year such as `2020.` — otherwise the widest
+ * column wins, so stray lines further left cannot pull the margin away from the entries.
  */
-function bodyMarginOf(lines: TextLine[], bodySize: number): number {
-  const xs = lines.map((line) => line.x).sort((a, b) => a - b);
-  const dominant = xs[Math.floor(xs.length / 2)];
-  const atEdge = (x: number) => x <= dominant + 0.5 * bodySize;
-  const labelled = lines.filter((line) => LABEL.test(line.text) && atEdge(line.x));
-  if (labelled.length > 0) return Math.min(...labelled.map((line) => line.x));
-  const flat = lines.filter((line) => atEdge(line.x));
-  if (flat.length > 0) return Math.min(...flat.map((line) => line.x));
-  return dominant;
+function bodyMarginOf(rows: TextLine[], tol: number): number {
+  const columns = columnsOf(rows, tol);
+  const entryColumns = columns.filter(
+    (column) =>
+      !column.lines.some((i) => {
+        const next = nextColumnX(rows, i, tol);
+        return next !== null && next < rows[i].x - tol;
+      }),
+  );
+  const pool = entryColumns.length > 0 ? entryColumns : columns;
+  const labelCount = (column: { lines: number[] }) =>
+    column.lines.filter((i) => LABEL.test(rows[i].text)).length;
+  const labelled = pool.filter((column) => labelCount(column) >= 2);
+  const chosen = labelled.length > 0 ? labelled : pool;
+  let best = chosen[0];
+  for (const column of chosen) if (column.lines.length > best.lines.length) best = column;
+  return best.x;
+}
+
+/** True when the next line in another column steps back to the margin: this line is a continuation. */
+function stepsBackToMargin(
+  rows: TextLine[],
+  i: number,
+  margin: number,
+  bodySize: number,
+  tol: number,
+): boolean {
+  const next = nextColumnX(rows, i, tol);
+  return next !== null && next < rows[i].x - tol && Math.abs(next - margin) <= 0.5 * bodySize;
 }
 
 /**
  * Split the lines of a reference section into entries.
  *
  * The first line of the section always starts an entry. A line starts a new entry when it
- * carries a label (`[1]`, `1.`, `(3)`) and sits at the body margin, or when it is not indented
- * and the previous line was hanging-indented. A label on an indented line is a continuation,
- * so a wrapped line starting with `2020.` stays inside its entry.
+ * carries a label (`[1]`, `1.`, `(3)`) and sits at the inferred body margin without stepping
+ * back to it, or when it is unlabelled, at the margin, and follows a hanging-indented line.
+ * A labelled line that steps back to the margin is a continuation, so a wrapped line starting
+ * with `2020.` stays inside its entry.
  *
  * Limit: unnumbered entries that are not hanging-indented cannot be told apart and collapse
  * into a single entry.
@@ -71,20 +112,24 @@ function bodyMarginOf(lines: TextLine[], bodySize: number): number {
  * The number marker is stripped from `text`; callers must render `label` next to `text`.
  */
 export function splitReferenceEntries(lines: TextLine[], bodySize: number): ReferenceEntry[] {
+  const rows = lines.filter((line) => line.text.trim());
   const entries: ReferenceEntry[] = [];
-  if (lines.length === 0) return entries;
-  const bodyLeft = bodyMarginOf(lines, bodySize);
-  const indent = bodyLeft + 0.5 * bodySize;
-  let prevIndented = false;
+  if (rows.length === 0) return entries;
 
-  for (const line of lines) {
-    if (!line.text.trim()) continue;
+  const tol = 0.25 * bodySize;
+  const margin = bodyMarginOf(rows, tol);
+  let prevHanging = false;
+
+  for (let i = 0; i < rows.length; i++) {
+    const line = rows[i];
     const match = LABEL.exec(line.text);
-    const indented = line.x > indent;
-    const startsEntry =
-      (match !== null && !indented) || entries.length === 0 || (!indented && prevIndented);
+    const hanging = line.x > margin + 0.5 * bodySize;
+    const opener =
+      entries.length === 0 ||
+      (match !== null && !hanging && !stepsBackToMargin(rows, i, margin, bodySize, tol)) ||
+      (match === null && !hanging && prevHanging);
 
-    if (startsEntry) {
+    if (opener) {
       const label = match ? match[0].trim() : null;
       const digits = label ? /(\d+)/.exec(label) : null;
       entries.push({
@@ -95,7 +140,7 @@ export function splitReferenceEntries(lines: TextLine[], bodySize: number): Refe
     } else {
       entries[entries.length - 1].text += ` ${line.text.trim()}`;
     }
-    prevIndented = indented;
+    prevHanging = hanging;
   }
   return entries;
 }

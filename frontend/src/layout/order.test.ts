@@ -21,6 +21,15 @@ describe("detectGutter", () => {
     expect(detectGutter(items, 400, 500, 10).gutter).toBeNull();
   });
 
+  it("does not mistake a page margin for a gutter", () => {
+    // Text ends at x=310 on a 400pt wide page: the 90pt right margin is white
+    // space, but it is a margin, not a gutter between two columns.
+    const items = [item(10, 100, 300), item(10, 120, 300)];
+    const result = detectGutter(items, 400, 500, 10);
+    expect(result.gutter).toBeNull();
+    expect(result.spanning.size).toBe(0);
+  });
+
   it("marks a centred title as spanning instead of blocking the gutter", () => {
     const items = [
       ...column(10, [100, 120, 140, 160]),

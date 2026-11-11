@@ -481,6 +481,13 @@ export default function App() {
     if (seq === batchSeq.current) setBatchRunning(false);
   }, [activeDoc, structure, batchRunning, blockTranslations]);
 
+  const cancelBatch = useCallback(() => {
+    // Bumping the sequence makes every batch worker stop scheduling new blocks;
+    // the few in-flight requests finish and their results are kept.
+    batchSeq.current++;
+    setBatchRunning(false);
+  }, []);
+
   const handleModeChange = useCallback(
     (next: ViewMode) => {
       if (next === "reading") void startReading();
@@ -578,7 +585,10 @@ export default function App() {
     ],
   );
 
-  const noScroll = mode === "reading" || (content?.kind === "epub" && mode === "original");
+  // Reading mode scrolls the whole reader-area (its toolbar is sticky), so it
+  // must NOT use the no-scroll flex layout — that clips the article with no
+  // inner scroll container. Only EPUB original mode manages its own layout.
+  const noScroll = content?.kind === "epub" && mode === "original";
 
   return (
     <div className="app">
@@ -663,6 +673,7 @@ export default function App() {
                     onTranslateBlock={(block) => void translateBlock(block)}
                     onTranslateContent={() => translateContent()}
                     onCancel={cancelReading}
+                    onCancelBatch={cancelBatch}
                   />
                 )}
               </>

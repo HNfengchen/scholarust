@@ -22,6 +22,7 @@ interface Props {
   onTranslateBlock: (block: StructuredBlock) => void;
   onTranslateContent: () => Promise<void>;
   onCancel: () => void;
+  onCancelBatch: () => void;
 }
 
 function readStoredFontSize(): number {
@@ -53,6 +54,7 @@ export default function ReadingView({
   onTranslateBlock,
   onTranslateContent,
   onCancel,
+  onCancelBatch,
 }: Props) {
   const [fontSize, setFontSize] = useState(readStoredFontSize);
   const [showTranslation, setShowTranslation] = useState(readStoredShowTranslation);
@@ -89,6 +91,17 @@ export default function ReadingView({
     await onTranslateContent();
     setShowTranslation(true);
   };
+
+  const blockButton = (block: StructuredBlock) =>
+    CONTENT_KINDS.includes(block.kind) && translations[block.id]?.status !== "loading" ? (
+      <button
+        className="block-translate-btn"
+        title="翻译这一段"
+        onClick={() => onTranslateBlock(block)}
+      >
+        译
+      </button>
+    ) : null;
 
   const renderStatus = (block: StructuredBlock) => {
     const translation = translations[block.id];
@@ -157,6 +170,15 @@ export default function ReadingView({
               "翻译正文"
             )}
           </button>
+          {batchRunning && (
+            <button
+              className="btn btn-small btn-danger"
+              onClick={onCancelBatch}
+              title="停止批量翻译，已完成的译文会保留"
+            >
+              取消
+            </button>
+          )}
         </div>
       </div>
 
@@ -204,33 +226,36 @@ export default function ReadingView({
 
               if (block.kind === "title") {
                 return (
-                  <Fragment key={block.id}>
+                  <div className="reading-translatable" key={block.id}>
+                    {blockButton(block)}
                     <h1 className="reading-text">{block.text}</h1>
                     {renderStatus(block)}
-                  </Fragment>
+                  </div>
                 );
               }
 
               if (block.kind === "heading") {
                 return (
-                  <Fragment key={block.id}>
+                  <div className="reading-translatable" key={block.id}>
+                    {blockButton(block)}
                     {block.level <= 1 ? (
                       <h2 className="reading-text">{block.text}</h2>
                     ) : (
                       <h3 className="reading-text">{block.text}</h3>
                     )}
                     {renderStatus(block)}
-                  </Fragment>
+                  </div>
                 );
               }
 
               const className =
                 block.kind === "reference"
-                  ? "reading-block reading-kind-reference"
-                  : `reading-block reading-kind-${block.kind}`;
+                  ? "reading-block reading-translatable reading-kind-reference"
+                  : `reading-block reading-translatable reading-kind-${block.kind}`;
 
               return (
                 <div className={className} key={block.id}>
+                  {blockButton(block)}
                   <p className="reading-text">{block.text}</p>
                   {renderStatus(block)}
                 </div>

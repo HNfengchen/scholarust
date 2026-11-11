@@ -1451,6 +1451,25 @@ mark.search-hit {
 .reading-article h2 { margin: 1.8em 0 0.6em; font-size: 1.35em; line-height: 1.45; }
 .reading-article h3 { margin: 1.5em 0 0.5em; font-size: 1.12em; line-height: 1.5; }
 .reading-block { margin: 0 0 1.35em; }
+.reading-translatable { position: relative; }
+.block-translate-btn {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  padding: 1px 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(79, 70, 229, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.reading-translatable:hover .block-translate-btn,
+.block-translate-btn:focus-visible { opacity: 1; }
+.block-translate-btn:hover { background: var(--accent); color: #fff; }
 .reading-text { margin: 0; white-space: pre-wrap; word-break: break-word; }
 .reading-kind-note .reading-text, .reading-kind-references .reading-text, .reading-kind-meta .reading-text, .reading-kind-caption .reading-text { font-size: 0.86em; color: var(--muted); }
 .reading-kind-reference .reading-text { font-size: 0.86em; color: var(--muted); }

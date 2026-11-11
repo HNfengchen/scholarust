@@ -1,7 +1,11 @@
 # 阅读模式重做（Scholaread 风格）设计
 
+> **已被取代（2026-11-11）**：本文档的"浏览器 onnxruntime-web 版面模型"路线已被 Stage 1 无损抽取管线替代。
+> 当前设计见 `docs/superpowers/specs/2026-11-11-reading-mode-stage1-design.md`；
+> 模型部分（Rust ONNX）见 `docs/superpowers/specs/2026-11-11-layout-model-stage-design.md`。
+
 日期：2026-11-09
-状态：待确认
+状态：已取代（保留作历史记录）
 方案：A（前端 onnxruntime-web + DocLayout-YOLO 版面模型）
 
 ## 1. 为什么做

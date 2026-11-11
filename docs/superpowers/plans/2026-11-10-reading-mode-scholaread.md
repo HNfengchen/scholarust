@@ -1,5 +1,8 @@
 ﻿# 阅读模式重做（Scholaread 风格）实现计划
 
+> **已被取代（2026-11-11）**：本文档基于"前端 ONNX 版面模型"路线，已被 Stage 1 无损抽取管线取代。
+> 当前计划见 `docs/superpowers/plans/2026-11-11-reading-mode-stage1.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把阅读模式从卡片式调试视图改成连续单栏文章，并用 DocLayout-YOLO ONNX 抽取 PDF 版面，保留图片/表格在正确位置。

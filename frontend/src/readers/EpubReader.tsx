@@ -4,18 +4,26 @@ import ePub from "epubjs";
 import type { Book, Rendition } from "epubjs";
 import { extractEpubParagraphs } from "../paragraphs";
 import { extractEpubStructure } from "../structure";
-import type { StructureExtractor } from "../structure";
+import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
 
 interface Props {
   url: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
+  readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
   onError: (message: string) => void;
   onSelection: (text: string) => void;
 }
 
-export default function EpubReader({ url, extractorRef, structureRef, onError, onSelection }: Props) {
+export default function EpubReader({
+  url,
+  extractorRef,
+  structureRef,
+  readingStructureRef,
+  onError,
+  onSelection,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const renditionRef = useRef<Rendition | null>(null);
 
@@ -35,6 +43,8 @@ export default function EpubReader({ url, extractorRef, structureRef, onError, o
       renditionRef.current = rendition;
       extractorRef.current = async () => extractEpubParagraphs(rendition);
       structureRef.current = async () => extractEpubStructure(rendition);
+      // The epub extractor already returns a promise, so it reads as it is.
+      readingStructureRef.current = structureRef.current;
       rendition.on("selected", (_cfiRange: string, contents: { window: Window }) => {
         const text = contents.window.getSelection()?.toString().trim() ?? "";
         if (text) onSelection(text);
@@ -51,10 +61,11 @@ export default function EpubReader({ url, extractorRef, structureRef, onError, o
       renditionRef.current = null;
       extractorRef.current = null;
       structureRef.current = null;
+      readingStructureRef.current = null;
       book?.destroy();
       container.replaceChildren();
     };
-  }, [url, extractorRef, structureRef, onError, onSelection]);
+  }, [url, extractorRef, structureRef, readingStructureRef, onError, onSelection]);
 
   return (
     <div className="epub-reader">

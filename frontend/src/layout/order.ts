@@ -85,20 +85,33 @@ export function detectGutter(
   return { gutter: [g0, g1], spanning };
 }
 
+/** The lines of one page, split into the columns they belong to. */
+export interface OrderedColumns {
+  /** The gutter between the columns, or null for a single-column page. */
+  gutter: [number, number] | null;
+  /** Lines that cross the gutter (titles, figures). */
+  spanning: TextLine[];
+  /** The lines of the left column. */
+  left: TextLine[];
+  /** The lines of the right column. */
+  right: TextLine[];
+}
+
 /**
- * Order the text of one page into reading order: spanning items (titles) and
- * the left column interleaved by baseline, then the right column.
+ * Split the text of one page into its columns.
+ *
+ * The split is the same one `orderPageLines` reads by, but kept apart so that
+ * other elements (images) can be placed in the column they belong to.
  */
-export function orderPageLines(
+export function orderPageColumns(
   items: PdfTextItem[],
   pageWidth: number,
   pageHeight: number,
   bodySize?: number,
-): TextLine[] {
+): OrderedColumns {
   const { gutter } = detectGutter(items, pageWidth, pageHeight, bodySize);
   if (!gutter) {
-    const lines = groupItemsIntoLines(items);
-    return lines.sort((a, b) => a.baseline - b.baseline || a.x - b.x);
+    return { gutter: null, spanning: [], left: groupItemsIntoLines(items), right: [] };
   }
 
   const [g0, g1] = gutter;
@@ -111,8 +124,25 @@ export function orderPageLines(
     else across.push(item);
   }
 
-  const head = [...groupItemsIntoLines(across), ...groupItemsIntoLines(left)].sort(
-    (a, b) => a.baseline - b.baseline || a.x - b.x,
-  );
-  return [...head, ...groupItemsIntoLines(right)];
+  return {
+    gutter,
+    spanning: groupItemsIntoLines(across),
+    left: groupItemsIntoLines(left),
+    right: groupItemsIntoLines(right),
+  };
+}
+
+/**
+ * Order the text of one page into reading order: spanning items (titles) and
+ * the left column interleaved by baseline, then the right column.
+ */
+export function orderPageLines(
+  items: PdfTextItem[],
+  pageWidth: number,
+  pageHeight: number,
+  bodySize?: number,
+): TextLine[] {
+  const { spanning, left, right } = orderPageColumns(items, pageWidth, pageHeight, bodySize);
+  const head = [...spanning, ...left].sort((a, b) => a.baseline - b.baseline || a.x - b.x);
+  return [...head, ...right];
 }

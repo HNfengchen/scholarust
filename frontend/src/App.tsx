@@ -9,7 +9,12 @@ import "./panels";
 import type { PanelContext } from "./panels/registry";
 import * as api from "./api";
 import { CONTENT_KINDS } from "./structure";
-import type { DocumentStructure, StructuredBlock, StructureExtractor } from "./structure";
+import type {
+  DocumentStructure,
+  ReadingStructureExtractor,
+  StructuredBlock,
+  StructureExtractor,
+} from "./structure";
 import type {
   BlockTranslation,
   Collection,
@@ -54,6 +59,9 @@ export default function App() {
   const [mode, setMode] = useState<ViewMode>("original");
   const [structure, setStructure] = useState<DocumentStructure | null>(null);
   const [structureLoading, setStructureLoading] = useState(false);
+  const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const [blockTranslations, setBlockTranslations] = useState<Record<number, BlockTranslation>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [selection, setSelection] = useState<SelectionTranslation | null>(null);
@@ -64,6 +72,7 @@ export default function App() {
 
   const extractorRef = useRef<ParagraphExtractor | null>(null);
   const structureRef = useRef<StructureExtractor | null>(null);
+  const readingStructureRef = useRef<ReadingStructureExtractor | null>(null);
   const readerHostRef = useRef<HTMLDivElement>(null);
   const readingCache = useRef(new Map<string, ReadingCache>());
   const activeDocIdRef = useRef<string | null>(null);
@@ -131,6 +140,7 @@ export default function App() {
     setContent(null);
     setMode("original");
     setStructure(null);
+    setExtractProgress(null);
     setBlockTranslations({});
     setContentLoading(true);
     api
@@ -301,10 +311,12 @@ export default function App() {
     if (cached) {
       setStructure(cached.structure);
       setBlockTranslations(cached.translations);
+      setExtractProgress(null);
       setMode("reading");
       return;
     }
-    const extract = structureRef.current;
+    const extract: ReadingStructureExtractor | null =
+      readingStructureRef.current ?? structureRef.current;
     if (!extract) {
       showError("阅读器尚未就绪，无法解析文档结构");
       return;
@@ -314,9 +326,13 @@ export default function App() {
     setBlockTranslations({});
     setMode("reading");
     try {
-      const parsed = await extract();
+      const parsed = await extract((done, total) => setExtractProgress({ done, total }));
       if (activeDocIdRef.current !== doc.id) return;
-      if (parsed.blocks.length === 0) throw new Error("未解析到可阅读的内容块");
+      // A notice means the document was read but holds no readable text; the
+      // reading view shows the notice instead of an error.
+      if (parsed.blocks.length === 0 && !parsed.notice) {
+        throw new Error("未解析到可阅读的内容块");
+      }
       readingCache.current.set(doc.id, { structure: parsed, translations: {} });
       setStructure(parsed);
     } catch (err) {
@@ -325,7 +341,10 @@ export default function App() {
         setMode("original");
       }
     } finally {
-      if (activeDocIdRef.current === doc.id) setStructureLoading(false);
+      if (activeDocIdRef.current === doc.id) {
+        setStructureLoading(false);
+        setExtractProgress(null);
+      }
     }
   }, [activeDoc, structureLoading, showError]);
 
@@ -554,6 +573,7 @@ export default function App() {
                     content={content}
                     extractorRef={extractorRef}
                     structureRef={structureRef}
+                    readingStructureRef={readingStructureRef}
                     onError={showError}
                     onSelection={handleSelectionText}
                   />
@@ -563,7 +583,7 @@ export default function App() {
                     title={activeDoc.title}
                     structure={structure}
                     loading={structureLoading}
-                    extractProgress={null}
+                    extractProgress={extractProgress}
                     translations={blockTranslations}
                     batchRunning={batchRunning}
                     onTranslateBlock={(block) => void translateBlock(block)}

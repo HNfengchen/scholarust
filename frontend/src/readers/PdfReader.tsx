@@ -5,7 +5,8 @@ import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { extractPdfParagraphs } from "../paragraphs";
 import { extractPdfStructure } from "../structure";
-import type { StructureExtractor } from "../structure";
+import type { ReadingStructureExtractor, StructureExtractor } from "../structure";
+import { extractPdfStructureReflowed } from "../layout/pdfStructure";
 import type { ParagraphExtractor } from "../types";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -14,10 +15,17 @@ interface Props {
   url: string;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
+  readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
   onError: (message: string) => void;
 }
 
-export default function PdfReader({ url, extractorRef, structureRef, onError }: Props) {
+export default function PdfReader({
+  url,
+  extractorRef,
+  structureRef,
+  readingStructureRef,
+  onError,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("正在加载 PDF…");
 
@@ -43,6 +51,9 @@ export default function PdfReader({ url, extractorRef, structureRef, onError }: 
         structurePromise ??= extractPdfStructure(doc);
         return structurePromise;
       };
+      // The reading mode reflows the pages instead of guessing the structure.
+      readingStructureRef.current = async (onProgress) =>
+        extractPdfStructureReflowed(doc, { onProgress });
       const available = Math.max(container.clientWidth - 48, 320);
       for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
         if (cancelled) return;
@@ -96,10 +107,11 @@ export default function PdfReader({ url, extractorRef, structureRef, onError }: 
       cancelled = true;
       extractorRef.current = null;
       structureRef.current = null;
+      readingStructureRef.current = null;
       container.replaceChildren();
       void loadingTask?.destroy();
     };
-  }, [url, extractorRef, structureRef, onError]);
+  }, [url, extractorRef, structureRef, readingStructureRef, onError]);
 
   return (
     <div className="pdf-reader">

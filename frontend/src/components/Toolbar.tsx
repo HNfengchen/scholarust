@@ -8,6 +8,8 @@ interface Props {
   mode: ViewMode;
   translating: boolean;
   hasDocument: boolean;
+  zoom: number;
+  onZoomChange: (zoom: number) => void;
   onServiceChange: (service: string) => void;
   onTargetChange: (target: string) => void;
   onBilingual: () => void;
@@ -21,6 +23,8 @@ export default function Toolbar({
   mode,
   translating,
   hasDocument,
+  zoom,
+  onZoomChange,
   onServiceChange,
   onTargetChange,
   onBilingual,
@@ -65,6 +69,29 @@ export default function Toolbar({
             <option value={settings.targetLang}>{settings.targetLang}</option>
           )}
         </select>
+        {mode === "original" && hasDocument && (
+          <div className="zoom-controls" title="原文缩放">
+            <button
+              className="btn btn-small"
+              onClick={() => onZoomChange(zoom - 0.1)}
+              disabled={zoom <= 0.5}
+              title="缩小"
+            >
+              −
+            </button>
+            <button className="zoom-label" onClick={() => onZoomChange(1)} title="重置为 100%">
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              className="btn btn-small"
+              onClick={() => onZoomChange(zoom + 0.1)}
+              disabled={zoom >= 3}
+              title="放大"
+            >
+              +
+            </button>
+          </div>
+        )}
         <div className="mode-switch">
           <button
             className={mode === "original" ? "active" : ""}

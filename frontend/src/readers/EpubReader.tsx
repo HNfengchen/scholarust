@@ -12,6 +12,7 @@ import type { EpubNavNode, OutlineExtractor } from "../outline";
 interface Props {
   url: string;
   docId: string;
+  zoom: number;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -20,9 +21,15 @@ interface Props {
   onSelection: (text: string) => void;
 }
 
-export default function EpubReader({ url, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection }: Props) {
+export default function EpubReader({ url, docId, zoom, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const renditionRef = useRef<Rendition | null>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  useEffect(() => {
+    renditionRef.current?.themes.fontSize(`${Math.round(zoom * 100)}%`);
+  }, [zoom]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -37,6 +44,7 @@ export default function EpubReader({ url, docId, extractorRef, structureRef, rea
       if (cancelled) return;
       book = ePub(buffer);
       const rendition = book.renderTo(container, { width: "100%", height: "100%" });
+      rendition.themes.fontSize(`${Math.round(zoomRef.current * 100)}%`);
       renditionRef.current = rendition;
       extractorRef.current = async () => extractEpubParagraphs(rendition);
       structureRef.current = async () => extractEpubStructure(rendition, { docId });

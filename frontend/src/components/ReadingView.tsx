@@ -170,82 +170,84 @@ export default function ReadingView({
         </div>
       </div>
 
-      {loading || !structure ? (
-        <div className="bilingual-loading">
-          <span className="spinner spinner-lg" />
-          <div>
-            {extractProgress
-              ? `正在识别版面… ${extractProgress.done}/${extractProgress.total} 页`
-              : "正在解析文档…"}
-          </div>
-          <button className="btn btn-small" onClick={onCancel}>
-            取消解析
-          </button>
-        </div>
-      ) : (
-        <>
-          {structure.notice && noticeOpen && (
-            <div className="reading-notice">
-              {structure.notice}{" "}
-              <button className="btn-link" onClick={() => setNoticeOpen(false)}>
-                关闭
-              </button>
+      <div className="reading-scroll">
+        {loading || !structure ? (
+          <div className="bilingual-loading">
+            <span className="spinner spinner-lg" />
+            <div>
+              {extractProgress
+                ? `正在识别版面… ${extractProgress.done}/${extractProgress.total} 页`
+                : "正在解析文档…"}
             </div>
-          )}
-          {structure.blocks.length === 0 ? (
-            <div className="empty-hint">没有可阅读的文本（可能是扫描版 PDF）。</div>
-          ) : (
-            <article
-              className="reading-article"
-              style={{ "--reading-font-size": `${fontSize}px` } as CSSProperties}
-            >
-              {structure.blocks.map((block) => {
-                if (block.kind === "figure") {
-                  if (!block.image) return null;
+            <button className="btn btn-small" onClick={onCancel}>
+              取消解析
+            </button>
+          </div>
+        ) : (
+          <>
+            {structure.notice && noticeOpen && (
+              <div className="reading-notice">
+                {structure.notice}{" "}
+                <button className="btn-link" onClick={() => setNoticeOpen(false)}>
+                  关闭
+                </button>
+              </div>
+            )}
+            {structure.blocks.length === 0 ? (
+              <div className="empty-hint">没有可阅读的文本（可能是扫描版 PDF）。</div>
+            ) : (
+              <article
+                className="reading-article"
+                style={{ "--reading-font-size": `${fontSize}px` } as CSSProperties}
+              >
+                {structure.blocks.map((block) => {
+                  if (block.kind === "figure") {
+                    if (!block.image) return null;
+                    return (
+                      <figure key={block.id} className="reading-figure">
+                        <img src={block.image} alt={block.caption ?? ""} loading="lazy" />
+                        {block.caption && <figcaption>{block.caption}</figcaption>}
+                      </figure>
+                    );
+                  }
+                  if (block.kind === "title") {
+                    return (
+                      <div key={block.id} className="reading-translatable">
+                        {blockButton(block)}
+                        <h1 className="reading-text">{block.text}</h1>
+                        {translationFor(block)}
+                      </div>
+                    );
+                  }
+                  if (block.kind === "heading") {
+                    return (
+                      <div key={block.id} className="reading-translatable">
+                        {blockButton(block)}
+                        {block.level <= 1 ? (
+                          <h2 className="reading-text">{block.text}</h2>
+                        ) : (
+                          <h3 className="reading-text">{block.text}</h3>
+                        )}
+                        {translationFor(block)}
+                      </div>
+                    );
+                  }
                   return (
-                    <figure key={block.id} className="reading-figure">
-                      <img src={block.image} alt={block.caption ?? ""} loading="lazy" />
-                      {block.caption && <figcaption>{block.caption}</figcaption>}
-                    </figure>
-                  );
-                }
-                if (block.kind === "title") {
-                  return (
-                    <div key={block.id} className="reading-translatable">
+                    <div
+                      key={block.id}
+                      className={`reading-block reading-translatable reading-kind-${block.kind}`}
+                    >
                       {blockButton(block)}
-                      <h1 className="reading-text">{block.text}</h1>
+                      <p className="reading-text">{block.text}</p>
                       {translationFor(block)}
                     </div>
                   );
-                }
-                if (block.kind === "heading") {
-                  return (
-                    <div key={block.id} className="reading-translatable">
-                      {blockButton(block)}
-                      {block.level <= 1 ? (
-                        <h2 className="reading-text">{block.text}</h2>
-                      ) : (
-                        <h3 className="reading-text">{block.text}</h3>
-                      )}
-                      {translationFor(block)}
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    key={block.id}
-                    className={`reading-block reading-translatable reading-kind-${block.kind}`}
-                  >
-                    {blockButton(block)}
-                    <p className="reading-text">{block.text}</p>
-                    {translationFor(block)}
-                  </div>
-                );
-              })}
-            </article>
-          )}
-        </>
-      )}
+                })}
+              </article>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -8,15 +8,19 @@ export default function NotesPanel({ document, selectionText, onNotify }: PanelC
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
+  const [pendingQuote, setPendingQuote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
   const docId = document?.id ?? null;
 
   useEffect(() => {
     setNotes([]);
     setDraft("");
+    setPendingQuote(null);
     setQuery("");
+    setExpandedDates(new Set());
     if (!docId) return;
     let cancelled = false;
     setLoading(true);
@@ -35,25 +39,22 @@ export default function NotesPanel({ document, selectionText, onNotify }: PanelC
     };
   }, [docId, onNotify]);
 
-  const saveNote = async (text: string, quote?: string): Promise<boolean> => {
-    if (!docId || saving) return false;
+  const handleSave = async () => {
+    const text = draft.trim();
+    if (!docId || saving || (!text && !pendingQuote)) return;
     setSaving(true);
     try {
-      const note = await addNote(docId, text, quote);
+      const note = await addNote(docId, text, pendingQuote ?? undefined);
       setNotes((prev) => [note, ...prev]);
-      return true;
+      setDraft("");
+      setPendingQuote(null);
+      const dateKey = new Date(note.createdAt).toLocaleDateString();
+      setExpandedDates((prev) => new Set(prev).add(dateKey));
     } catch (err) {
       onNotify(`笔记保存失败：${String(err)}`);
-      return false;
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleSaveDraft = async () => {
-    const text = draft.trim();
-    if (!text) return;
-    if (await saveNote(text)) setDraft("");
   };
 
   const handleDelete = async (noteId: string) => {
@@ -66,6 +67,16 @@ export default function NotesPanel({ document, selectionText, onNotify }: PanelC
     }
   };
 
+  const toggleDate = (date: string) => {
+    setExpandedDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date);
+      else next.add(date);
+      return next;
+    });
+  };
+
+  const searching = query.trim().length > 0;
   const groups = filterAndGroupNotes(notes, query);
 
   return (
@@ -98,9 +109,8 @@ export default function NotesPanel({ document, selectionText, onNotify }: PanelC
             {selectionText && (
               <button
                 className="btn btn-small"
-                disabled={saving}
                 title={selectionText}
-                onClick={() => void saveNote("", selectionText)}
+                onClick={() => setPendingQuote(selectionText)}
               >
                 摘录选中文字
               </button>
@@ -116,16 +126,30 @@ export default function NotesPanel({ document, selectionText, onNotify }: PanelC
             />
           )}
           <div className="notes-composer">
+            {pendingQuote && (
+              <div className="note-quote notes-pending-quote">
+                <div className="pending-quote-text">{pendingQuote}</div>
+                <button
+                  className="pending-quote-remove"
+                  title="移除摘录"
+                  onClick={() => setPendingQuote(null)}
+                >
+                  ×
+                </button>
+              </div>
+            )}
             <textarea
               className="notes-textarea"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="写一条笔记，每次保存为独立的一条"
+              placeholder={
+                pendingQuote ? "在摘录下方写点内容…（也可只保存摘录）" : "写一条笔记，每次保存为独立的一条"
+              }
             />
             <button
               className="btn btn-primary btn-small"
-              disabled={!draft.trim() || saving}
-              onClick={() => void handleSaveDraft()}
+              disabled={saving || (!draft.trim() && !pendingQuote)}
+              onClick={() => void handleSave()}
             >
               {saving ? "保存中…" : "保存笔记"}
             </button>
@@ -134,26 +158,34 @@ export default function NotesPanel({ document, selectionText, onNotify }: PanelC
             {loading && <div className="empty-hint">正在载入笔记…</div>}
             {!loading && groups.length === 0 && (
               <div className="empty-hint">
-                {query.trim() ? "没有匹配的笔记" : "暂无笔记，可在阅读器中选中文字后摘录"}
+                {searching ? "没有匹配的笔记" : "暂无笔记，可在阅读器中选中文字后摘录"}
               </div>
             )}
-            {groups.map(([date, items]) => (
-              <div key={date} className="notes-group">
-                <div className="notes-date">{date}</div>
-                {items.map((note) => (
-                  <div key={note.id} className="note-item">
-                    {note.quote && <div className="note-quote">{note.quote}</div>}
-                    {note.text && <div className="note-text">{note.text}</div>}
-                    <div className="note-meta">
-                      <span>{new Date(note.createdAt).toLocaleTimeString()}</span>
-                      <button className="btn-link" onClick={() => void handleDelete(note.id)}>
-                        删除
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
+            {groups.map(([date, items]) => {
+              const open = searching || expandedDates.has(date);
+              return (
+                <div key={date} className="notes-group">
+                  <button className="notes-date" onClick={() => toggleDate(date)}>
+                    <span className={`notes-chevron${open ? " open" : ""}`}>▸</span>
+                    {date}
+                    <span className="notes-count">{items.length}</span>
+                  </button>
+                  {open &&
+                    items.map((note) => (
+                      <div key={note.id} className="note-item">
+                        {note.quote && <div className="note-quote">{note.quote}</div>}
+                        {note.text && <div className="note-text">{note.text}</div>}
+                        <div className="note-meta">
+                          <span>{new Date(note.createdAt).toLocaleTimeString()}</span>
+                          <button className="btn-link" onClick={() => void handleDelete(note.id)}>
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              );
+            })}
           </div>
         </>
       )}

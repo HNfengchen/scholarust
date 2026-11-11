@@ -13,6 +13,7 @@ interface Props {
   html: string | null;
   docxUrl: string | null;
   docId: string;
+  zoom: number;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -20,7 +21,7 @@ interface Props {
   onError: (message: string) => void;
 }
 
-export default function HtmlReader({ html, docxUrl, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError }: Props) {
+export default function HtmlReader({ html, docxUrl, docId, zoom, extractorRef, structureRef, readingStructureRef, outlineRef, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(false);
 
@@ -72,7 +73,7 @@ export default function HtmlReader({ html, docxUrl, docId, extractorRef, structu
   return (
     <div className="html-reader-wrap">
       {loading && <div className="reader-status">正在转换 DOCX…</div>}
-      <div ref={containerRef} className="html-reader" />
+      <div ref={containerRef} className="html-reader" style={{ zoom }} />
     </div>
   );
 }

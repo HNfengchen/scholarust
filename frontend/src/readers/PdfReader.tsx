@@ -37,6 +37,7 @@ async function resolvePdfOutline(
 
 interface Props {
   url: string;
+  zoom: number;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -44,8 +45,12 @@ interface Props {
   onError: (message: string) => void;
 }
 
-export default function PdfReader({ url, extractorRef, structureRef, readingStructureRef, outlineRef, onError }: Props) {
+export default function PdfReader({ url, zoom, extractorRef, structureRef, readingStructureRef, outlineRef, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const docRef = useRef<PDFDocumentProxy | null>(null);
+  const renderSeq = useRef(0);
+  const lastWidth = useRef(0);
+  const [renderKey, setRenderKey] = useState(0);
   const [status, setStatus] = useState("正在加载 PDF…");
 
   useEffect(() => {
@@ -64,6 +69,7 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
       loadingTask = getDocument({ data });
       const doc = await loadingTask.promise;
       if (cancelled) return;
+      docRef.current = doc;
       extractorRef.current = () => extractPdfParagraphs(doc);
       let structurePromise: ReturnType<StructureExtractor> | null = null;
       structureRef.current = () => {
@@ -112,12 +118,47 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
         })();
         return outlinePromise;
       };
+      setRenderKey((key) => key + 1);
+    };
+
+    run().catch((err) => {
+      if (!cancelled) {
+        setStatus("");
+        onError(`PDF 渲染失败：${String(err)}`);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      docRef.current = null;
+      extractorRef.current = null;
+      structureRef.current = null;
+      readingStructureRef.current = null;
+      outlineRef.current = null;
+      container.replaceChildren();
+      void loadingTask?.destroy();
+    };
+  }, [url, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const doc = docRef.current;
+    if (!container || !doc || container.clientWidth === 0) return;
+    const seq = ++renderSeq.current;
+    let cancelled = false;
+
+    const render = async () => {
+      const scroller = container.closest<HTMLElement>(".reader-area");
+      const scrollRatio =
+        scroller && scroller.scrollHeight > 0 ? scroller.scrollTop / scroller.scrollHeight : 0;
       const available = Math.max(container.clientWidth - 48, 320);
+      lastWidth.current = container.clientWidth;
+      container.replaceChildren();
       for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-        if (cancelled) return;
+        if (cancelled || seq !== renderSeq.current) return;
         const page = await doc.getPage(pageNumber);
         const base = page.getViewport({ scale: 1 });
-        const viewport = page.getViewport({ scale: available / base.width });
+        const viewport = page.getViewport({ scale: (available / base.width) * zoom });
         const dpr = window.devicePixelRatio || 1;
         const wrapper = document.createElement("div");
         wrapper.className = "pdf-page";
@@ -140,22 +181,27 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
           viewport,
           transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
         }).promise;
-        if (cancelled) return;
+        if (cancelled || seq !== renderSeq.current) return;
         const textContent = await page.getTextContent();
-        if (cancelled) return;
+        if (cancelled || seq !== renderSeq.current) return;
         const textLayer = new TextLayer({
           textContentSource: textContent,
           container: textLayerDiv,
           viewport,
         });
         await textLayer.render();
-        if (!cancelled) setStatus(`已渲染第 ${pageNumber} / ${doc.numPages} 页`);
+        if (!cancelled && seq === renderSeq.current) {
+          setStatus(`已渲染第 ${pageNumber} / ${doc.numPages} 页`);
+        }
       }
-      if (!cancelled) setStatus("");
+      if (!cancelled && seq === renderSeq.current) {
+        setStatus("");
+        if (scroller) scroller.scrollTop = scrollRatio * scroller.scrollHeight;
+      }
     };
 
-    run().catch((err) => {
-      if (!cancelled) {
+    render().catch((err) => {
+      if (!cancelled && seq === renderSeq.current) {
         setStatus("");
         onError(`PDF 渲染失败：${String(err)}`);
       }
@@ -163,14 +209,27 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
 
     return () => {
       cancelled = true;
-      extractorRef.current = null;
-      structureRef.current = null;
-      readingStructureRef.current = null;
-      outlineRef.current = null;
-      container.replaceChildren();
-      void loadingTask?.destroy();
     };
-  }, [url, extractorRef, structureRef, readingStructureRef, outlineRef, onError]);
+  }, [renderKey, zoom, onError]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    let timer: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (Math.abs(container.clientWidth - lastWidth.current) > 8) {
+          setRenderKey((key) => key + 1);
+        }
+      }, 200);
+    });
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
 
   return (
     <div className="pdf-reader">

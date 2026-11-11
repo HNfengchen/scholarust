@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./components/Sidebar";
 import Toolbar from "./components/Toolbar";
 import Reader from "./components/Reader";
-import RightPane from "./components/RightPane";
+import RightPane, { MIN_PANEL_WIDTH } from "./components/RightPane";
 import ReadingView from "./components/ReadingView";
 import "./panels";
 import type { PanelContext } from "./panels/registry";
@@ -43,6 +43,26 @@ function loadRecentIds(): string[] {
   }
 }
 
+function loadPaneWidth(): number {
+  try {
+    const raw = window.localStorage.getItem("scholarust.paneWidth");
+    const value = raw == null ? NaN : Number(raw);
+    return Number.isFinite(value) && value >= MIN_PANEL_WIDTH ? value : 320;
+  } catch {
+    return 320;
+  }
+}
+
+function loadZoom(): number {
+  try {
+    const raw = window.localStorage.getItem("scholarust.reader.zoom");
+    const value = raw == null ? NaN : Number(raw);
+    return Number.isFinite(value) ? Math.min(3, Math.max(0.5, value)) : 1;
+  } catch {
+    return 1;
+  }
+}
+
 export default function App() {
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -64,12 +84,15 @@ export default function App() {
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recentIds, setRecentIds] = useState<string[]>(loadRecentIds);
+  const [paneWidth, setPaneWidth] = useState(loadPaneWidth);
+  const [zoom, setZoom] = useState(loadZoom);
 
   const extractorRef = useRef<ParagraphExtractor | null>(null);
   const structureRef = useRef<StructureExtractor | null>(null);
   const readingStructureRef = useRef<ReadingStructureExtractor | null>(null);
   const outlineRef = useRef<OutlineExtractor | null>(null);
   const readerHostRef = useRef<HTMLDivElement>(null);
+  const centerRef = useRef<HTMLElement>(null);
   const readingCache = useRef(new Map<string, ReadingCache>());
   const activeDocIdRef = useRef<string | null>(null);
   const batchSeq = useRef(0);
@@ -312,6 +335,25 @@ export default function App() {
     setMode("original");
   }, []);
 
+  const handleZoomChange = useCallback((next: number) => {
+    const clamped = Math.min(3, Math.max(0.5, Math.round(next * 10) / 10));
+    setZoom(clamped);
+    try {
+      window.localStorage.setItem("scholarust.reader.zoom", String(clamped));
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
+  const handlePanelWidthChange = useCallback((width: number) => {
+    setPaneWidth(width);
+    try {
+      window.localStorage.setItem("scholarust.paneWidth", String(Math.round(width)));
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
   const startReading = useCallback(async () => {
     const doc = activeDoc;
     if (!doc || structureLoading) return;
@@ -528,7 +570,7 @@ export default function App() {
     ],
   );
 
-  const epubLayout = content?.kind === "epub" && mode === "original";
+  const noScroll = mode === "reading" || (content?.kind === "epub" && mode === "original");
 
   return (
     <div className="app">
@@ -557,7 +599,7 @@ export default function App() {
             void handleUpdateDocMeta(id, tags, collectionIds)
           }
         />
-        <main className="center">
+        <main className="center" ref={centerRef}>
           <Toolbar
             title={activeDoc?.title ?? null}
             services={services}
@@ -565,13 +607,15 @@ export default function App() {
             mode={mode}
             translating={structureLoading}
             hasDocument={!!activeDoc && !!content}
+            zoom={zoom}
+            onZoomChange={handleZoomChange}
             onServiceChange={(service) => updateSettings({ service })}
             onTargetChange={(targetLang) => updateSettings({ targetLang })}
             onBilingual={() => void startReading()}
             onModeChange={handleModeChange}
           />
           <div
-            className={`reader-area${epubLayout ? " no-scroll" : ""}`}
+            className={`reader-area${noScroll ? " no-scroll" : ""}`}
             onMouseUp={handleReaderMouseUp}
           >
             {!activeDoc && (
@@ -591,6 +635,7 @@ export default function App() {
                     key={`${content.kind}:${content.path}`}
                     content={content}
                     docId={activeDoc.id}
+                    zoom={zoom}
                     extractorRef={extractorRef}
                     structureRef={structureRef}
                     readingStructureRef={readingStructureRef}
@@ -621,6 +666,9 @@ export default function App() {
           context={panelContext}
           onSelectPanel={handleSelectPanel}
           onClosePanel={() => setActivePanelId(null)}
+          panelWidth={paneWidth}
+          getMaxPanelWidth={() => centerRef.current?.clientWidth ?? 600}
+          onPanelWidthChange={handlePanelWidthChange}
         />
       </div>
     </div>

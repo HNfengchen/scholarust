@@ -10,6 +10,7 @@ import HtmlReader from "../readers/HtmlReader";
 interface Props {
   content: DocumentContent;
   docId: string;
+  zoom: number;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   readingStructureRef: MutableRefObject<ReadingStructureExtractor | null>;
@@ -18,13 +19,14 @@ interface Props {
   onSelection: (text: string) => void;
 }
 
-export default function Reader({ content, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection }: Props) {
+export default function Reader({ content, docId, zoom, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection }: Props) {
   const url = convertFileSrc(content.path);
   switch (content.kind) {
     case "pdf":
       return (
         <PdfReader
           url={url}
+          zoom={zoom}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
@@ -37,6 +39,7 @@ export default function Reader({ content, docId, extractorRef, structureRef, rea
         <EpubReader
           url={url}
           docId={docId}
+          zoom={zoom}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
@@ -51,6 +54,7 @@ export default function Reader({ content, docId, extractorRef, structureRef, rea
           html={null}
           docxUrl={url}
           docId={docId}
+          zoom={zoom}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}
@@ -64,6 +68,7 @@ export default function Reader({ content, docId, extractorRef, structureRef, rea
           html={content.html}
           docxUrl={null}
           docId={docId}
+          zoom={zoom}
           extractorRef={extractorRef}
           structureRef={structureRef}
           readingStructureRef={readingStructureRef}

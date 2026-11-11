@@ -40,11 +40,30 @@ export function findReferenceSection(lines: TextLine[], bodySize: number): { sta
 }
 
 /**
+ * The left edge where the entry lines of a section start.
+ *
+ * The dominant (median) start x anchors the guess, so a single stray line or a single
+ * hanging-indented continuation cannot define the margin; lines that look like entry starts
+ * and sit at that edge refine it.
+ */
+function bodyMarginOf(lines: TextLine[], bodySize: number): number {
+  const xs = lines.map((line) => line.x).sort((a, b) => a - b);
+  const dominant = xs[Math.floor(xs.length / 2)];
+  const atEdge = (x: number) => x <= dominant + 0.5 * bodySize;
+  const labelled = lines.filter((line) => LABEL.test(line.text) && atEdge(line.x));
+  if (labelled.length > 0) return Math.min(...labelled.map((line) => line.x));
+  const flat = lines.filter((line) => atEdge(line.x));
+  if (flat.length > 0) return Math.min(...flat.map((line) => line.x));
+  return dominant;
+}
+
+/**
  * Split the lines of a reference section into entries.
  *
- * A line starts a new entry when it carries a label (`[1]`, `1.`, `(3)`) and sits at the body
- * margin, or when it is not indented and the previous line was hanging-indented. A label on an
- * indented line is a continuation, so a wrapped line starting with `2020.` stays inside its entry.
+ * The first line of the section always starts an entry. A line starts a new entry when it
+ * carries a label (`[1]`, `1.`, `(3)`) and sits at the body margin, or when it is not indented
+ * and the previous line was hanging-indented. A label on an indented line is a continuation,
+ * so a wrapped line starting with `2020.` stays inside its entry.
  *
  * Limit: unnumbered entries that are not hanging-indented cannot be told apart and collapse
  * into a single entry.
@@ -54,8 +73,7 @@ export function findReferenceSection(lines: TextLine[], bodySize: number): { sta
 export function splitReferenceEntries(lines: TextLine[], bodySize: number): ReferenceEntry[] {
   const entries: ReferenceEntry[] = [];
   if (lines.length === 0) return entries;
-  const labelled = lines.filter((line) => LABEL.test(line.text));
-  const bodyLeft = Math.min(...(labelled.length > 0 ? labelled : lines).map((line) => line.x));
+  const bodyLeft = bodyMarginOf(lines, bodySize);
   const indent = bodyLeft + 0.5 * bodySize;
   let prevIndented = false;
 

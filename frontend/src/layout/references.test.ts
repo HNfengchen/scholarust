@@ -55,6 +55,20 @@ describe("splitReferenceEntries", () => {
     expect(sortReferenceEntries(entries).map((e) => e.label)).toEqual(["[1]", "[2]"]);
   });
 
+  it("does not let a label-like continuation define the body margin", () => {
+    const lines = [
+      line(0, "Smith et al. Paper", 0, 10),
+      line(12, "2020. continued on the next line", 20, 10),
+      line(24, "Jones. Paper", 0, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].text).toContain("2020. continued on the next line");
+    expect(entries[0].label).toBeNull();
+    expect(entries[1].text).toBe("Jones. Paper");
+    expect(entries[1].label).toBeNull();
+  });
+
   it("collapses unnumbered entries that are not hanging-indented", () => {
     const lines = [line(0, "Smith et al. Paper", 0, 10), line(12, "Jones. Paper", 0, 10)];
     const entries = splitReferenceEntries(lines, 10);

@@ -127,12 +127,15 @@ export function splitReferenceEntries(lines: TextLine[], bodySize: number): Refe
   const entries: ReferenceEntry[] = [];
   if (rows.length === 0) return entries;
 
-  const tol = 0.25 * bodySize;
-  const margin = bodyMarginOf(rows, tol);
+  // Columns are grouped tightly; a marker is accepted when it sits within half a body size
+  // of the margin, so a number printed slightly right of the entry column keeps its number.
+  const colTol = 0.25 * bodySize;
+  const markerTol = 0.5 * bodySize;
+  const margin = bodyMarginOf(rows, colTol);
   let prevHanging = false;
 
   for (const row of rows) {
-    const atMargin = Math.abs(row.x - margin) <= tol;
+    const atMargin = Math.abs(row.x - margin) <= markerTol;
     // Only a line at the margin can carry the number of an entry; a stray numbered line
     // further left keeps its text as it is.
     const marker = atMargin ? markerOf(row.text) : null;

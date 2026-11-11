@@ -174,6 +174,16 @@ describe("splitReferenceEntries", () => {
     expect(numbered[0].number).toBe(1);
   });
 
+  it("keeps the number of a marker that sits slightly right of the margin", () => {
+    const entries = splitReferenceEntries([line(0, "[1] A", 0, 10), line(12, "[2] B", 3, 10)], 10);
+    expect(entries.map((e) => e.label)).toEqual(["[1]", "[2]"]);
+    expect(entries.map((e) => e.number)).toEqual([1, 2]);
+
+    const shifted = splitReferenceEntries([line(0, "[1] A", 24, 10), line(12, "[2] B", 27, 10)], 10);
+    expect(shifted.map((e) => e.label)).toEqual(["[1]", "[2]"]);
+    expect(shifted.map((e) => e.number)).toEqual([1, 2]);
+  });
+
   it("infers the body margin from the labelled lines", () => {
     const lines = [
       line(0, "Table 1: results", 0, 10),

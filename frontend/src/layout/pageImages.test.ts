@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OPS } from "pdfjs-dist";
-import { collectImagePlacements, imageRectFromMatrix, multiplyMatrix } from "./pageImages";
+import { collectImagePlacements, imageRectFromMatrix, multiplyMatrix, targetSize } from "./pageImages";
 
 describe("multiplyMatrix", () => {
   it("applies translate after scale", () => {
@@ -13,6 +13,29 @@ describe("imageRectFromMatrix", () => {
   it("converts a PDF placement matrix to page coordinates", () => {
     const rect = imageRectFromMatrix([100, 0, 0, 50, 20, 700]);
     expect(rect).toEqual({ x: 20, y: 650, w: 100, h: 50 });
+  });
+});
+
+describe("targetSize", () => {
+  it("keeps a small bitmap at its own size", () => {
+    expect(targetSize(100, 80)).toEqual({ width: 100, height: 80 });
+  });
+
+  it("caps the longest edge at 1600 pixels and keeps the aspect ratio", () => {
+    const size = targetSize(4000, 2000);
+    expect(size).toEqual({ width: 1600, height: 800 });
+    expect(Math.max(size.width, size.height)).toBeLessThanOrEqual(1600);
+    expect(size.width / size.height).toBeCloseTo(2, 2);
+  });
+
+  it("never scales a bitmap up", () => {
+    const size = targetSize(800, 1600);
+    expect(size.width).toBeLessThanOrEqual(800);
+    expect(size.height).toBeLessThanOrEqual(1600);
+  });
+
+  it("reports an empty size for a bitmap without pixels", () => {
+    expect(targetSize(0, 10)).toEqual({ width: 0, height: 0 });
   });
 });
 

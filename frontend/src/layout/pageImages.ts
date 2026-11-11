@@ -169,45 +169,34 @@ function readImageObject(page: PDFPageProxy, objId: string): Promise<PdfImagePay
 }
 
 /**
+ * Size of the canvas an image is rendered into.
+ *
+ * The bitmap keeps its own resolution and aspect ratio, capped at
+ * {@link MAX_EDGE} pixels on the longest edge so a huge figure cannot blow up
+ * the memory use. A small bitmap is never scaled up.
+ */
+export function targetSize(sourceWidth: number, sourceHeight: number): { width: number; height: number } {
+  if (!(sourceWidth > 0) || !(sourceHeight > 0)) return { width: 0, height: 0 };
+  const longest = Math.max(sourceWidth, sourceHeight);
+  if (longest <= MAX_EDGE) return { width: sourceWidth, height: sourceHeight };
+  const scale = MAX_EDGE / longest;
+  return {
+    width: Math.max(1, Math.round(sourceWidth * scale)),
+    height: Math.max(1, Math.round(sourceHeight * scale)),
+  };
+}
+
+/**
  * Render an image object onto an offscreen canvas and return it as a data URL.
  *
- * The canvas keeps the aspect ratio the page gives the image and follows the
- * resolution of the source bitmap, so figures stay sharp instead of being
- * reduced to one pixel per PDF unit.
+ * The canvas follows the resolution of the source bitmap, so figures stay sharp
+ * instead of being reduced to one pixel per PDF unit.
  */
-function renderImage(payload: PdfImagePayload, rect: LayoutRect): string | null {
+function renderImage(payload: PdfImagePayload): string | null {
   const sourceWidth = payload.width;
   const sourceHeight = payload.height;
-  if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null;
-
-  const source = document.createElement("canvas");
-  source.width = sourceWidth;
-  source.height = sourceHeight;
-  const sourceCtx = source.getContext("2d");
-  if (!sourceCtx) return null;
-
-  if (payload.bitmap) {
-    sourceCtx.drawImage(payload.bitmap, 0, 0);
-  } else if (payload.data && payload.data.length === sourceWidth * sourceHeight * 4) {
-    const bytes = new Uint8ClampedArray(sourceWidth * sourceHeight * 4);
-    bytes.set(payload.data);
-    sourceCtx.putImageData(new ImageData(bytes, sourceWidth, sourceHeight), 0, 0);
-  } else {
-    // A colour space or pixel format we cannot paint.
-    return null;
-  }
-
-  let scale = 1;
-  if (rect.w > 0 && rect.h > 0) {
-    scale = Math.min(sourceWidth / rect.w, sourceHeight / rect.h);
-  }
-  let width = Math.max(1, Math.round(rect.w * scale));
-  let height = Math.max(1, Math.round(rect.h * scale));
-  const longest = Math.max(width, height);
-  if (longest > MAX_EDGE) {
-    width = Math.max(1, Math.round((width * MAX_EDGE) / longest));
-    height = Math.max(1, Math.round((height * MAX_EDGE) / longest));
-  }
+  const { width, height } = targetSize(sourceWidth, sourceHeight);
+  if (!width || !height) return null;
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -217,7 +206,35 @@ function renderImage(payload: PdfImagePayload, rect: LayoutRect): string | null 
   // JPEG has no alpha channel and PDF pages are white, so paint that first.
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(source, 0, 0, width, height);
+
+  if (payload.bitmap) {
+    // The bitmap goes straight into the capped canvas, no intermediate.
+    ctx.drawImage(payload.bitmap, 0, 0, width, height);
+  } else if (payload.data && payload.data.length === sourceWidth * sourceHeight * 4) {
+    const imageData = ctx.createImageData(sourceWidth, sourceHeight);
+    imageData.data.set(payload.data);
+    if (width === sourceWidth && height === sourceHeight) {
+      ctx.putImageData(imageData, 0, 0);
+      // Transparent pixels carry no colour in JPEG, so let the white show.
+      ctx.globalCompositeOperation = "destination-over";
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.globalCompositeOperation = "source-over";
+    } else {
+      // putImageData always writes 1:1, so a downscale needs an intermediate.
+      const source = document.createElement("canvas");
+      source.width = sourceWidth;
+      source.height = sourceHeight;
+      const sourceCtx = source.getContext("2d");
+      if (!sourceCtx) return null;
+      sourceCtx.putImageData(imageData, 0, 0);
+      ctx.drawImage(source, 0, 0, width, height);
+    }
+  } else {
+    // A colour space or pixel format we cannot paint.
+    return null;
+  }
+
   return canvas.toDataURL("image/jpeg", 0.92);
 }
 
@@ -252,7 +269,7 @@ export async function extractPageImages(
       }
       const payload = await readImageObject(page, placement.objId);
       if (!payload) return null;
-      const dataUrl = renderImage(payload, rect);
+      const dataUrl = renderImage(payload);
       return dataUrl ? { rect, dataUrl } : null;
     }),
   );

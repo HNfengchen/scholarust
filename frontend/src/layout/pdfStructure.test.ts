@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { StructuredBlock } from "../structure";
 import type { TextLine } from "./types";
 import {
+  extractPdfStructureReflowed,
   isBandLine,
   isPageNumberText,
   isRunningNumber,
@@ -235,5 +236,50 @@ describe("mergeAcrossPages", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].text).toBe("[1] Smith. A very long title that runs on to the next page.");
     expect(merged[0].page).toBe(5);
+  });
+});
+
+function stubPage(lines: string[], height = 800) {
+  return {
+    getViewport: () => ({ width: 600, height }),
+    getTextContent: async () => ({
+      items: lines.map((text, index) => ({
+        str: text,
+        transform: [1, 0, 0, 10, 40, height - 100 - index * 20],
+        width: text.length * 5,
+        height: 10,
+        dir: "ltr",
+        fontName: "f1",
+        hasEOL: false,
+      })),
+    }),
+    getOperatorList: async () => ({ fnArray: [], argsArray: [] }),
+    objs: { get: () => undefined },
+    commonObjs: { get: () => undefined },
+  };
+}
+
+describe("extractPdfStructureReflowed", () => {
+  it("keeps every input line exactly once", async () => {
+    const pages = [
+      ["Introduction", "First sentence of the body.", "Second sentence of the body."],
+      ["Methods", "Third sentence of the body.", "Fourth sentence of the body."],
+    ];
+    const doc = {
+      numPages: pages.length,
+      getPage: async (number: number) => stubPage(pages[number - 1]),
+    };
+
+    const structure = await extractPdfStructureReflowed(doc as never);
+    const text = structure.blocks
+      .map((item) => `${item.text} ${item.caption ?? ""}`)
+      .join("\n");
+
+    for (const page of pages) {
+      for (const inputLine of page) {
+        expect(text).toContain(inputLine);
+      }
+    }
+    expect(structure.blocks.length).toBeGreaterThan(0);
   });
 });

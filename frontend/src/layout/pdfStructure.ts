@@ -561,7 +561,7 @@ export async function extractPdfStructureReflowed(
 
   const notices: string[] = [];
   if (skipped > 0) {
-    notices.push(`本文档有 ${skipped} 处矢量图形或表格未保留（需要版面模型支持）`);
+    notices.push(`本文档有 ${skipped} 处图形内容未保留（矢量图、表格或无法提取的图片）`);
   }
   if (!merged.some((block) => block.kind !== "figure")) {
     notices.push("未检测到文字，可能是扫描版 PDF");

@@ -143,6 +143,7 @@ export default function App() {
     setMode("original");
     setStructure(null);
     setExtractProgress(null);
+    setStructureLoading(false);
     setBlockTranslations({});
     setContentLoading(true);
     api

@@ -70,9 +70,11 @@ FP8 原始权重（可选，研究用）：`https://hf-mirror.com/tencent/Hy-MT2
 
 **效率优化**（`app/src/model.rs`）：`-ngl 99` 全量 GPU offload、`--flash-attn on`、16K 上下文、`--parallel 4` 连续批处理、常驻暖服务（启动一次反复使用）、段落级并发请求。实测 RTX 4070 Laptop：单段学术文本 1.9s（约 116 tok/s），4 段并发合计 1.9s。
 
-## 版面模型（阅读模式）
+## 版面模型（Stage 2，尚未启用）
 
-PDF 阅读模式使用 DocLayout-YOLO 识别版面。未放模型时会回退到简化抽取。
+当前的阅读模式是纯前端抽取（pdf.js 文字层坐标 + 分栏重排），**不需要**模型，也不会调用下面的文件。
+
+DocLayout-YOLO 版面识别属于后续可选阶段（设计见 `docs/superpowers/specs/2026-11-11-layout-model-stage-design.md`），届时放好模型并在设置里开启即可；现在下载它不会有任何效果。预留路径：
 
 ```bash
 mkdir -p models/layout

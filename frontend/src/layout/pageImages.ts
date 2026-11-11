@@ -77,6 +77,8 @@ export function collectImagePlacements(
   const stack: Matrix[] = [];
   let current: Matrix = [1, 0, 0, -1, 0, pageHeight];
   let skipped = 0;
+  // A page full of paths counts as one missing graphic, not one per paint op.
+  let sawVector = false;
 
   for (let i = 0; i < fnArray.length; i++) {
     const fn = fnArray[i];
@@ -126,14 +128,14 @@ export function collectImagePlacements(
       case OPS.eoFillStroke:
       case OPS.closeFillStroke:
       case OPS.closeEOFillStroke:
-        skipped++;
+        sawVector = true;
         break;
       default:
         break;
     }
   }
 
-  return { placements, skipped };
+  return { placements, skipped: skipped + (sawVector ? 1 : 0) };
 }
 
 /**

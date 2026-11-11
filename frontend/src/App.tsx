@@ -563,10 +563,11 @@ export default function App() {
                     title={activeDoc.title}
                     structure={structure}
                     loading={structureLoading}
+                    extractProgress={null}
                     translations={blockTranslations}
                     batchRunning={batchRunning}
                     onTranslateBlock={(block) => void translateBlock(block)}
-                    onTranslateContent={() => void translateContent()}
+                    onTranslateContent={() => translateContent()}
                   />
                 )}
               </>

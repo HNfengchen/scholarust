@@ -17,6 +17,10 @@ describe("findReferenceSection", () => {
     expect(findReferenceSection(lines, 10)).toEqual({ start: 1, end: 3 });
   });
 
+  it("keeps publisher notes outside the bibliography even at body size", () => {
+    const lines = [line(0, "References"), line(12, "1. Smith (2025) Paper"), line(24, "Publisher’s Note Springer Nature remains neutral")];
+    expect(findReferenceSection(lines, 10)).toEqual({ start: 0, end: 2 });
+  });
   it("returns null when no references heading is present", () => {
     const lines = [line(0, "Conclusion", 0, 14), line(40, "[1] Smith et al. Paper one.", 0, 10)];
     expect(findReferenceSection(lines, 10)).toBeNull();
@@ -24,6 +28,16 @@ describe("findReferenceSection", () => {
 });
 
 describe("splitReferenceEntries", () => {
+  it("repairs wrapped words and DOI links without joining separate entries", () => {
+    const entries = splitReferenceEntries([
+      line(0, "1. Smith (2025) form-"),
+      line(12, "ing. https://doi.org/10.", 20),
+      line(24, "1007/example", 20),
+      line(36, "2. Jones (2024) Paper"),
+    ], 10);
+    expect(entries[0].text).toBe("Smith (2025) forming. https://doi.org/10.1007/example");
+    expect(entries).toHaveLength(2);
+  });
   it("splits numbered entries and keeps continuation lines", () => {
     const lines = [
       line(0, "[1] Smith et al. A very long title", 0, 10),

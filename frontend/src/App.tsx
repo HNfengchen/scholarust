@@ -415,12 +415,10 @@ export default function App() {
 
   const applyTranslation = useCallback(
     (docId: string, blockId: number, translation: BlockTranslation) => {
-      setBlockTranslations((prev) => {
-        const next = { ...prev, [blockId]: translation };
-        const cached = readingCache.current.get(docId);
-        if (cached) cached.translations = next;
-        return next;
-      });
+      const cached = readingCache.current.get(docId);
+      if (!cached) return;
+      cached.translations = { ...cached.translations, [blockId]: translation };
+      if (activeDocIdRef.current === docId) setBlockTranslations(cached.translations);
     },
     [],
   );
@@ -436,7 +434,6 @@ export default function App() {
           settings?.service || undefined,
           settings?.targetLang || undefined,
         );
-        if (activeDocIdRef.current !== docId) return;
         applyTranslation(
           docId,
           block.id,
@@ -445,9 +442,7 @@ export default function App() {
             : { status: "done", result },
         );
       } catch (err) {
-        if (activeDocIdRef.current === docId) {
-          applyTranslation(docId, block.id, { status: "error", message: String(err) });
-        }
+        applyTranslation(docId, block.id, { status: "error", message: String(err) });
       }
     },
     [activeDoc, settings, applyTranslation],
@@ -670,7 +665,7 @@ export default function App() {
                     extractProgress={extractProgress}
                     translations={blockTranslations}
                     batchRunning={batchRunning}
-                    onTranslateBlock={(block) => void translateBlock(block)}
+                    onTranslateBlock={translateBlock}
                     onTranslateContent={() => translateContent()}
                     onCancel={cancelReading}
                     onCancelBatch={cancelBatch}

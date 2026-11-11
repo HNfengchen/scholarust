@@ -9,6 +9,7 @@ import { extractPdfStructure } from "../structure";
 import type { DocumentStructure, ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
 import { extractPdfStructureReflowed } from "../layout/pdfStructure";
+import { detectLayout, layoutModelInfo } from "../api";
 import { flattenPdfOutline } from "../outline";
 import type { OutlineEntry, OutlineExtractor, PdfOutlineNode } from "../outline";
 
@@ -78,7 +79,9 @@ export default function PdfReader({ url, zoom, extractorRef, structureRef, readi
       let readingPromise: Promise<DocumentStructure> | null = null;
       readingStructureRef.current = (onProgress, signal) => {
         if (!readingPromise) {
-          const promise = extractPdfStructureReflowed(doc, { onProgress, signal });
+          const promise = layoutModelInfo().then((model) => extractPdfStructureReflowed(doc, {
+            onProgress, signal, detectLayout: model.exists ? detectLayout : undefined,
+          }));
           readingPromise = promise;
           promise.catch(() => {
             if (readingPromise === promise) readingPromise = null;

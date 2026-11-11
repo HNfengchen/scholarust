@@ -260,6 +260,24 @@ function stubPage(lines: string[], height = 800) {
 }
 
 describe("extractPdfStructureReflowed", () => {
+  it("recognizes a first-page title below the level-one font threshold", async () => {
+    const texts = ["A Study of Materials", "Alex Smith", "Abstract", "A detailed summary of the study.", "1 Introduction", "The main text of this paper begins here."];
+    const page = stubPage(texts);
+    const content = await page.getTextContent();
+    content.items[0].transform[3] = 15;
+    content.items[0].height = 15;
+    page.getTextContent = async () => content;
+    const structure = await extractPdfStructureReflowed({ numPages: 1, getPage: async () => page } as never);
+    expect(structure.blocks.map(({ kind, text }) => ({ kind, text }))).toEqual([
+      { kind: "title", text: texts[0] },
+      { kind: "meta", text: texts[1] },
+      { kind: "heading", text: texts[2] },
+      { kind: "abstract", text: texts[3] },
+      { kind: "heading", text: texts[4] },
+      { kind: "paragraph", text: texts[5] },
+    ]);
+  });
+
   it("keeps every input line exactly once", async () => {
     const pages = [
       ["Introduction", "First sentence of the body.", "Second sentence of the body."],

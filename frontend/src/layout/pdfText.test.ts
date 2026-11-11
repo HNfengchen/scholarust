@@ -35,6 +35,18 @@ describe("itemsFromTextContent", () => {
 });
 
 describe("groupItemsIntoLines", () => {
+  it("keeps author superscripts inline without inflating the line font size", () => {
+    const lines = groupItemsIntoLines([
+      { x: 10, baseline: 100, width: 60, size: 10, str: "Alex Smith" },
+      { x: 70, baseline: 96.4, width: 4, size: 7.5, str: "1" },
+      { x: 80, baseline: 100, width: 4, size: 12, str: "·" },
+      { x: 86, baseline: 100, width: 60, size: 10, str: "Jamie Chen" },
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].text).toBe("Alex Smith1 ·Jamie Chen");
+    expect(lines[0].size).toBeLessThan(10.1);
+  });
+
   it("merges items on the same baseline left to right", () => {
     const lines = groupItemsIntoLines([
       { x: 50, baseline: 100, width: 30, size: 10, str: "world" },

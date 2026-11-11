@@ -11,6 +11,7 @@ export interface ReferenceEntry {
 
 const HEADING = /^(references|参考文献|bibliography|works cited|literature cited|引用文献)$/;
 const LABEL = /^\s*(\[\d+\]|\d+[.)]|\(\d+\))/;
+const SECTION_END = /^(?:publisher[’']?s note|open access|acknowledg(?:e)?ments?|appendix|funding|author contributions|conflict of interest)\b/i;
 /** A four-digit number is a year, not a reference number (an APA `(2020).` is not a marker). */
 const YEAR_FLOOR = 1000;
 
@@ -33,7 +34,7 @@ export function findReferenceSection(lines: TextLine[], bodySize: number): { sta
   if (start < 0) return null;
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
-    if (lines[i].size >= bodySize * 1.25) {
+    if (lines[i].size >= bodySize * 1.25 || SECTION_END.test(lines[i].text.trim())) {
       end = i;
       break;
     }
@@ -152,7 +153,11 @@ export function splitReferenceEntries(lines: TextLine[], bodySize: number): Refe
         text: marker ? row.text.slice(marker.end).trim() : row.text.trim(),
       });
     } else {
-      entries[entries.length - 1].text += ` ${row.text.trim()}`;
+      const previous = entries[entries.length - 1];
+      const next = row.text.trim();
+      if (/https?:\/\/\S+$/.test(previous.text)) previous.text += next;
+      else if (previous.text.endsWith("-") && /^[a-z]/.test(next)) previous.text = previous.text.slice(0, -1) + next;
+      else previous.text += ` ${next}`;
     }
     prevHanging = hanging;
   }

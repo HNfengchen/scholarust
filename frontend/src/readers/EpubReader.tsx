@@ -26,6 +26,10 @@ export default function EpubReader({ url, docId, zoom, extractorRef, structureRe
   const renditionRef = useRef<Rendition | null>(null);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  const onSelectionRef = useRef(onSelection);
+  const onErrorRef = useRef(onError);
+  onSelectionRef.current = onSelection;
+  onErrorRef.current = onError;
 
   useEffect(() => {
     renditionRef.current?.themes.fontSize(`${Math.round(zoom * 100)}%`);
@@ -35,10 +39,11 @@ export default function EpubReader({ url, docId, zoom, extractorRef, structureRe
     const container = containerRef.current;
     if (!container) return;
     let cancelled = false;
+    const controller = new AbortController();
     let book: Book | null = null;
 
     const run = async () => {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const buffer = await response.arrayBuffer();
       if (cancelled) return;
@@ -46,9 +51,11 @@ export default function EpubReader({ url, docId, zoom, extractorRef, structureRe
       const rendition = book.renderTo(container, { width: "100%", height: "100%" });
       rendition.themes.fontSize(`${Math.round(zoomRef.current * 100)}%`);
       renditionRef.current = rendition;
+      const wholeBook = book;
       extractorRef.current = async () => extractEpubParagraphs(rendition);
-      structureRef.current = async () => extractEpubStructure(rendition, { docId });
-      readingStructureRef.current = structureRef.current;
+      structureRef.current = () => extractEpubStructure(wholeBook, { docId });
+      readingStructureRef.current = (onProgress, signal) =>
+        extractEpubStructure(wholeBook, { docId, onProgress, signal });
       const currentBook = book;
       outlineRef.current = async () => {
         const navigation = await currentBook.loaded.navigation;
@@ -59,17 +66,18 @@ export default function EpubReader({ url, docId, zoom, extractorRef, structureRe
       };
       rendition.on("selected", (_cfiRange: string, contents: { window: Window }) => {
         const text = contents.window.getSelection()?.toString().trim() ?? "";
-        if (text) onSelection(text);
+        if (text) onSelectionRef.current(text);
       });
       await rendition.display();
     };
 
     run().catch((err) => {
-      if (!cancelled) onError(`EPUB 渲染失败：${String(err)}`);
+      if (!cancelled) onErrorRef.current(`EPUB 渲染失败：${String(err)}`);
     });
 
     return () => {
       cancelled = true;
+      controller.abort();
       renditionRef.current = null;
       extractorRef.current = null;
       structureRef.current = null;
@@ -78,7 +86,7 @@ export default function EpubReader({ url, docId, zoom, extractorRef, structureRe
       book?.destroy();
       container.replaceChildren();
     };
-  }, [url, docId, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection]);
+  }, [url, docId, extractorRef, structureRef, readingStructureRef, outlineRef]);
 
   return (
     <div className="epub-reader">

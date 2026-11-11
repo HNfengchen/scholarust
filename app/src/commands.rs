@@ -43,6 +43,8 @@ pub async fn remove_document(state: State<'_, AppState>, id: String) -> Result<(
 pub struct ContentPayload {
     pub kind: scholarust_core::DocumentKind,
     pub html: Option<String>,
+    /// The untouched source text, for showing Markdown / plain text verbatim.
+    pub raw: Option<String>,
     pub path: String,
 }
 
@@ -55,20 +57,21 @@ pub async fn get_content(
     let doc = library
         .get(&id)
         .ok_or_else(|| format!("document not found: {id}"))?;
-    let html = match doc.kind {
+    let (html, raw) = match doc.kind {
         scholarust_core::DocumentKind::Markdown => {
             let source = std::fs::read_to_string(&doc.path).map_err(err)?;
-            Some(markdown::render_markdown(&source))
+            (Some(markdown::render_markdown(&source)), Some(source))
         }
         scholarust_core::DocumentKind::Text => {
             let source = std::fs::read_to_string(&doc.path).map_err(err)?;
-            Some(markdown::render_text(&source))
+            (Some(markdown::render_text(&source)), Some(source))
         }
-        _ => None,
+        _ => (None, None),
     };
     Ok(ContentPayload {
         kind: doc.kind,
         html,
+        raw,
         path: doc.path.clone(),
     })
 }
@@ -424,6 +427,18 @@ pub async fn read_layout_model(state: State<'_, AppState>) -> Result<tauri::ipc:
     let path = state.model.layout_model_path();
     let bytes = std::fs::read(&path).map_err(err)?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+pub async fn detect_layout(
+    state: State<'_, AppState>,
+    png: Vec<u8>,
+) -> Result<Vec<crate::layout::Detection>, String> {
+    let path = state.model.layout_model_path();
+    tokio::task::spawn_blocking(move || crate::layout::detect_layout(&path, &png))
+        .await
+        .map_err(err)?
+        .map_err(err)
 }
 
 pub fn resolve_document_image_path(base: &Path, src: &str) -> Result<std::path::PathBuf, String> {

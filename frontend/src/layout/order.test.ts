@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectGutter, orderPageLines } from "./order";
+import { detectGutter, orderPageColumns, orderPageLines } from "./order";
 import type { PdfTextItem } from "./pdfText";
 
 const item = (x: number, baseline: number, width: number, size = 10, str = "x"): PdfTextItem => ({
@@ -43,6 +43,15 @@ describe("detectGutter", () => {
 });
 
 describe("orderPageLines", () => {
+  it("keeps fragmented full-width author rows outside the body columns", () => {
+    const items = [item(10, 60, 140, 10, "First author"), item(250, 60, 140, 10, "Second author"),
+      ...column(10, [100, 120]), ...column(250, [100, 120])];
+    const columns = orderPageColumns(items, 400, 500, 10, [200, 200], [{ x: 8, y: 48, w: 384, h: 16 }]);
+    expect(columns.spanning.map((l) => l.text)).toEqual(["First author Second author"]);
+    expect(columns.left).toHaveLength(2);
+    expect(columns.right).toHaveLength(2);
+  });
+
   it("reads the left column before the right column", () => {
     const items = [...column(10, [100, 120]), ...column(250, [100, 120])];
     const lines = orderPageLines(items, 400, 500, 10);

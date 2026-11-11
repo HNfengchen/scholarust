@@ -1,7 +1,7 @@
 import { getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { itemsFromTextContent } from "./pdfText";
-import type { PdfJsTextItem, TextLine } from "./types";
+import type { LayoutRect, PdfJsTextItem, TextLine } from "./types";
 import { orderPageColumns } from "./order";
 import type { OrderedColumns } from "./order";
 import { bodySizeOf, headingLevelForLine, mergeLinesIntoParagraphs } from "./paragraphs";
@@ -9,6 +9,8 @@ import { findReferenceSection, sortReferenceEntries, splitReferenceEntries } fro
 import type { ReferenceEntry } from "./references";
 import { extractPageImages } from "./pageImages";
 import type { PlacedImage } from "./pageImages";
+import { extractPageLayout } from "./pageLayout";
+import type { LayoutDetector } from "./pageLayout";
 import { sectionForHeading } from "../structure";
 import type { BlockKind, DocumentStructure, Section, StructuredBlock } from "../structure";
 
@@ -274,29 +276,28 @@ function buildSegment(
   figures: { position: number; image: PlacedImage }[],
   bodySize: number,
 ): PageItem[] {
-  const groups = mergeLinesIntoParagraphs(lines, bodySize);
   const items: PageItem[] = [];
-  const pending = [...figures];
-  let consumed = 0;
-  for (const group of groups) {
-    while (pending.length > 0 && pending[0].position <= consumed) {
-      items.push({ kind: "figure", image: pending.shift()!.image });
+  let start = 0;
+  for (let i = 0; i <= figures.length; i++) {
+    const figure = figures[i];
+    const end = figure ? figure.position : lines.length;
+    const groups = mergeLinesIntoParagraphs(lines.slice(start, end), bodySize);
+    for (const group of groups) {
+      const pageNumber = isPageNumberText(group[0].text);
+      const level = pageNumber ? null : headingLevelForLine(group[0], bodySize);
+      if (level !== null) {
+        items.push({ kind: "heading", line: group[0], level });
+        if (group.length > 1) items.push({ kind: "paragraph", lines: group.slice(1) });
+      } else if (pageNumber) {
+        items.push({ kind: "meta", line: group[0] });
+        if (group.length > 1) items.push({ kind: "paragraph", lines: group.slice(1) });
+      } else {
+        items.push({ kind: "paragraph", lines: group });
+      }
     }
-    // A page number is a mark of the page: it is never a heading and never text.
-    const pageNumber = isPageNumberText(group[0].text);
-    const level = pageNumber ? null : headingLevelForLine(group[0], bodySize);
-    if (level !== null) {
-      items.push({ kind: "heading", line: group[0], level });
-      if (group.length > 1) items.push({ kind: "paragraph", lines: group.slice(1) });
-    } else if (pageNumber) {
-      items.push({ kind: "meta", line: group[0] });
-      if (group.length > 1) items.push({ kind: "paragraph", lines: group.slice(1) });
-    } else {
-      items.push({ kind: "paragraph", lines: group });
-    }
-    consumed += group.length;
+    if (figure) items.push({ kind: "figure", image: figure.image });
+    start = end;
   }
-  while (pending.length > 0) items.push({ kind: "figure", image: pending.shift()!.image });
   return items;
 }
 
@@ -316,6 +317,7 @@ function attachCaptions(items: PageItem[]): void {
     const bottom = item.image.rect.y + item.image.rect.h;
     const top = line.baseline - line.size;
     if (top < bottom || top > bottom + CAPTION_GAP) continue;
+    if (!/^(?:fig(?:ure)?\.?|table|图|表)\s*\d/i.test(line.text.trim())) continue;
     const left = item.image.rect.x;
     const right = left + item.image.rect.w;
     if (line.x + line.width < left || line.x > right) continue;
@@ -357,7 +359,7 @@ function toBlock(item: PageItem, page: number, context: BuildContext): Structure
     context.headingSeen = true;
     // The title is the first heading of the document, and it has to look like one.
     const isTitle =
-      first && item.level === 1 && item.line.size >= context.bodySize * TITLE_FACTOR && page === 1;
+      first && item.line.size >= context.bodySize * TITLE_FACTOR && page === 1;
     if (!isTitle) {
       const matched = sectionForHeading(item.line.text);
       if (matched) context.section = matched;
@@ -380,7 +382,8 @@ function toBlock(item: PageItem, page: number, context: BuildContext): Structure
     .map((line) => line.text.trim())
     .filter(Boolean)
     .join(" ");
-  return { id: 0, kind: kindForSection(context.section), text, page, level: 0 };
+  const kind = /^(?:keywords\b|关键词|关键字)/i.test(text) ? "meta" : kindForSection(context.section);
+  return { id: 0, kind, text, page, level: 0 };
 }
 
 /**
@@ -399,11 +402,13 @@ export async function extractPdfStructureReflowed(
     signal?: AbortSignal;
     /** Force the number of parallel workers; omitted picks one by page count. */
     shards?: number;
+    detectLayout?: LayoutDetector;
   } = {},
 ): Promise<DocumentStructure> {
   const total = doc.numPages;
   const pages: PageData[] = new Array(total);
   let skipped = 0;
+  let layoutFailures = 0;
   let done = 0;
   const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 4 : 4;
 
@@ -425,22 +430,41 @@ export async function extractPdfStructureReflowed(
       return;
     }
     const viewport = page.getViewport({ scale: 1 });
-    const items = itemsFromTextContent(
+    let items = itemsFromTextContent(
       content.items.filter((item): item is PdfJsTextItem => "str" in item),
       viewport.height,
     );
     let images: PlacedImage[] = [];
-    try {
-      const extracted = await extractPageImages(page);
-      images = extracted.images;
-      skipped += extracted.skipped;
-    } catch (err) {
-      console.warn(`第 ${number} 页图片提取失败`, err);
+    let usedLayout = false;
+    let gutter: [number, number] | undefined;
+    let spanning: LayoutRect[] = [];
+    if (options.detectLayout) {
+      try {
+        const result = await extractPageLayout(page, items, options.detectLayout, options.signal);
+        items = result.items;
+        images = result.images;
+        gutter = result.gutter;
+        spanning = result.spanning;
+        usedLayout = true;
+      } catch (err) {
+        options.signal?.throwIfAborted();
+        layoutFailures++;
+        console.warn(`第 ${number} 页版面识别失败`, err);
+      }
+    }
+    if (!usedLayout) {
+      try {
+        const extracted = await extractPageImages(page);
+        images = extracted.images;
+        skipped += extracted.skipped;
+      } catch (err) {
+        console.warn(`第 ${number} 页图片提取失败`, err);
+      }
     }
     pages[number - 1] = {
       pageNumber: number,
       height: viewport.height,
-      columns: orderPageColumns(items, viewport.width, viewport.height),
+      columns: orderPageColumns(items, viewport.width, viewport.height, undefined, gutter, spanning),
       images,
     };
   };
@@ -452,7 +476,7 @@ export async function extractPdfStructureReflowed(
   // workers (each loads its own copy of the file, in parallel); a very short one
   // stays on this document and only overlaps the main-thread bitmap painting
   // with the worker's parsing.
-  const autoShards = total >= 8 ? Math.min(cores, 8, Math.floor(total / 2)) : 1;
+  const autoShards = total >= 8 ? Math.min(cores, options.detectLayout ? 2 : 8, Math.floor(total / 2)) : 1;
   let shardCount = options.shards ?? autoShards;
   let useShards = shardCount >= 2 && typeof doc.getData === "function";
   let shards: PDFDocumentProxy[] = [];
@@ -473,7 +497,7 @@ export async function extractPdfStructureReflowed(
   }
   const sourceFor = (number: number): PDFDocumentProxy =>
     useShards ? shards[(number - 1) % shards.length] : doc;
-  const workerCount = useShards ? shards.length : Math.min(8, Math.max(1, cores));
+  const workerCount = useShards ? shards.length : Math.min(options.detectLayout ? 2 : 8, Math.max(1, cores));
 
   let next = 1;
   const runner = async (): Promise<void> => {
@@ -487,7 +511,9 @@ export async function extractPdfStructureReflowed(
     }
   };
   try {
-    await Promise.all(Array.from({ length: Math.min(workerCount, total) }, runner));
+    const results = await Promise.allSettled(Array.from({ length: Math.min(workerCount, total) }, runner));
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
   } finally {
     if (useShards) await Promise.all(shards.map((shard) => shard.destroy()));
   }
@@ -628,6 +654,7 @@ export async function extractPdfStructureReflowed(
   });
 
   const notices: string[] = [];
+  if (layoutFailures > 0) notices.push(`${layoutFailures} 页版面识别失败，已使用基础解析`);
   if (skipped > 0) {
     notices.push(`本文档有 ${skipped} 处图形内容未保留（矢量图、表格或无法提取的图片）`);
   }

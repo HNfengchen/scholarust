@@ -21,6 +21,8 @@ anyhow.workspace = true
 reqwest.workspace = true
 async-trait.workspace = true
 base64 = "0.22"
+ort = { version = "=2.0.0-rc.15", features = ["download-binaries", "directml"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 scholarust-core.workspace = true
 scholarust-translate.workspace = true
 scholarust-plugin-host.workspace = true

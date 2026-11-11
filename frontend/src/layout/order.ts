@@ -1,5 +1,6 @@
 import { groupItemsIntoLines } from "./pdfText";
 import type { PdfTextItem, TextLine } from "./pdfText";
+import type { LayoutRect } from "./types";
 
 export interface GutterResult {
   gutter: [number, number] | null;
@@ -108,8 +109,10 @@ export function orderPageColumns(
   pageWidth: number,
   pageHeight: number,
   bodySize?: number,
+  detectedGutter?: [number, number],
+  spanningRegions: LayoutRect[] = [],
 ): OrderedColumns {
-  const { gutter } = detectGutter(items, pageWidth, pageHeight, bodySize);
+  const gutter = detectedGutter ?? detectGutter(items, pageWidth, pageHeight, bodySize).gutter;
   if (!gutter) {
     return { gutter: null, spanning: [], left: groupItemsIntoLines(items), right: [] };
   }
@@ -119,7 +122,9 @@ export function orderPageColumns(
   const right: PdfTextItem[] = [];
   const across: PdfTextItem[] = [];
   for (const item of items) {
-    if (item.x + item.width <= g0) left.push(item);
+    const cy = item.baseline - item.size / 2;
+    if (spanningRegions.some((r) => cy >= r.y && cy <= r.y + r.h)) across.push(item);
+    else if (item.x + item.width <= g0) left.push(item);
     else if (item.x >= g1) right.push(item);
     else across.push(item);
   }

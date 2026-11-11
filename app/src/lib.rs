@@ -1,4 +1,5 @@
 mod commands;
+mod layout;
 mod model;
 mod state;
 
@@ -83,6 +84,7 @@ pub fn run() {
             commands::stop_model,
             commands::layout_model_info,
             commands::read_layout_model,
+            commands::detect_layout,
             commands::read_document_image,
         ])
         .build(tauri::generate_context!())

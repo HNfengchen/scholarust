@@ -517,6 +517,36 @@ input:focus {
   padding: 6px 10px;
 }
 
+.html-reader h1 { font-size: 1.8em; margin: 0 0 0.8em; line-height: 1.35; }
+.html-reader h2 { font-size: 1.4em; margin: 1.6em 0 0.6em; line-height: 1.4; }
+.html-reader h3 { font-size: 1.15em; margin: 1.3em 0 0.5em; line-height: 1.45; }
+.html-reader p { margin: 0 0 1em; }
+
+/* Markdown original mode: the untouched source, set as readable code. */
+.html-reader pre.raw-markdown {
+  margin: 0;
+  padding: 28px 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: "Cascadia Code", "JetBrains Mono", "Consolas", "SF Mono", monospace;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: hidden;
+}
+
+/* Plain-text original mode: keep the source lines, set as prose. */
+.html-reader .raw-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 15.5px;
+  line-height: 1.9;
+  color: var(--text);
+}
+
 .bilingual {
   max-width: 760px;
   margin: 0 auto;
@@ -1451,7 +1481,30 @@ mark.search-hit {
 .reading-article h2 { margin: 1.8em 0 0.6em; font-size: 1.35em; line-height: 1.45; }
 .reading-article h3 { margin: 1.5em 0 0.5em; font-size: 1.12em; line-height: 1.5; }
 .reading-block { margin: 0 0 1.35em; }
-.reading-translatable { position: relative; }
+.reading-translatable { position: relative; padding-right: 36px; }
+.reading-block:not(.reading-kind-title):not(.reading-kind-heading) { content-visibility: auto; contain-intrinsic-block-size: auto 100px; }
+.reading-kind-reference > p { padding-left: 1.9em; text-indent: -1.9em; }
+.reading-text.reading-rich { white-space: normal; overflow-wrap: anywhere; }
+.reading-rich > :first-child { margin-top: 0; }
+.reading-rich > :last-child { margin-bottom: 0; }
+.reading-rich p { margin: 0 0 0.85em; }
+.reading-rich ul, .reading-rich ol { padding-left: 1.6em; }
+.reading-rich li { margin: 0.3em 0; }
+.reading-rich img { max-width: 100%; height: auto; vertical-align: middle; }
+.reading-rich figure { margin: 0; }
+.reading-kind-heading .reading-rich > p { font-size: 1.35em; line-height: 1.45; font-weight: 600; }
+.reading-rich table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+.reading-rich th, .reading-rich td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+.reading-rich th { background: var(--bg); font-weight: 600; }
+.reading-rich blockquote { margin: 1em 0; padding: 0.2em 1em; border-left: 3px solid var(--accent); color: var(--muted); }
+.reading-rich pre { padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; white-space: pre-wrap; }
+.reading-rich code { font-family: "Cascadia Code", Consolas, monospace; font-size: 0.88em; }
+.reading-rich a { color: var(--accent); text-underline-offset: 3px; }
+@media (max-width: 640px) {
+  .reading { padding: 0 16px 64px; }
+  .reading-toolbar { margin: 0 -16px 20px; padding: 10px 16px; }
+  .reading-toolbar-actions { flex-wrap: wrap; }
+}
 .block-translate-btn {
   position: absolute;
   top: 2px;
@@ -1464,7 +1517,7 @@ mark.search-hit {
   border: 1px solid rgba(79, 70, 229, 0.35);
   border-radius: 4px;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.45;
   transition: opacity 0.12s ease;
 }
 .reading-translatable:hover .block-translate-btn,
@@ -1480,7 +1533,7 @@ mark.search-hit {
 .reading-figure { margin: 1.8em 0; text-align: center; }
 .reading-figure img { max-width: 100%; height: auto; border-radius: 4px; }
 .reading-figure figcaption { margin-top: 0.5em; color: var(--muted); font-size: 0.82em; line-height: 1.6; }
-.reading-notice { margin: 0 auto 20px; max-width: 46rem; padding: 10px 14px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e; border-radius: 8px; font-size: 13px; }
+.reading-notice { white-space: pre-line; margin: 0 auto 20px; max-width: 46rem; padding: 10px 14px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e; border-radius: 8px; font-size: 13px; }
 .reading .empty-hint { color: var(--muted); text-align: center; padding: 48px 0; }
 .btn-link { border: none; background: none; padding: 0; color: var(--accent); font-size: inherit; cursor: pointer; text-decoration: underline; }
 .reader-area ::selection { background: rgba(79, 70, 229, 0.28); }

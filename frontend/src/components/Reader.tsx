@@ -61,7 +61,9 @@ export default function Reader({
     case "docx":
       return (
         <HtmlReader
+          kind="docx"
           html={null}
+          raw={null}
           docxUrl={url}
           docId={docId}
           zoom={zoom}
@@ -75,7 +77,9 @@ export default function Reader({
     default:
       return (
         <HtmlReader
+          kind={content.kind}
           html={content.html}
+          raw={content.raw}
           docxUrl={null}
           docId={docId}
           zoom={zoom}

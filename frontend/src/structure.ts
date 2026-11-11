@@ -1,6 +1,9 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import type { Rendition } from "epubjs";
-import { resolveImage } from "./layout/images";
+import type { Book } from "epubjs";
+import type EpubSection from "epubjs/types/section";
+import { contentCheckpoint, contentPlainText, sanitizeContentHtml, throwIfContentAborted, waitForContent } from "./contentHtml";
+import { flattenEpubNav } from "./outline";
+import type { EpubNavNode } from "./outline";
 
 export type BlockKind =
   | "title"
@@ -18,6 +21,8 @@ export interface StructuredBlock {
   id: number;
   kind: BlockKind;
   text: string;
+  /** Semantic HTML rebuilt with the content whitelist, never source innerHTML. */
+  html?: string;
   page: number | null;
   level: number;
   image?: string;
@@ -427,115 +432,204 @@ export async function extractPdfStructure(doc: PDFDocumentProxy): Promise<Docume
   return { blocks, removedLines: removed };
 }
 
-const HTML_BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,figcaption,aside,figure,img";
-const FOOTNOTE_SELECTOR =
-  '[epub\\:type~="footnote"],[epub\\:type~="rearnote"],[role="doc-footnote"],[role="doc-endnote"],.footnote,.footnotes,#footnotes';
+const HTML_BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,table,ol,ul,dl,li,dt,dd,blockquote,pre,figcaption,aside,figure,hr";
+const HTML_CONTAINERS = new Set("div section article main header footer nav".split(" "));
+const FOOTNOTE_SELECTOR = '[role="doc-footnote"],[role="doc-endnote"]';
 
 export async function extractHtmlStructure(
   root: ParentNode,
-  options?: { docId?: string },
+  options?: { docId?: string; signal?: AbortSignal },
 ): Promise<DocumentStructure> {
-  const matched = Array.from(root.querySelectorAll<HTMLElement>(HTML_BLOCK_SELECTOR));
-  const topLevel = matched.filter(
-    (element) => !matched.some((other) => other !== element && other.contains(element)),
-  );
+  const { fragment, notice } = await sanitizeContentHtml(root, options);
+  const checkpoint = contentCheckpoint(options?.signal);
+  const matched = new Set(fragment.querySelectorAll<HTMLElement>(HTML_BLOCK_SELECTOR));
+  const containers = new Set(fragment.querySelectorAll<HTMLElement>([...HTML_CONTAINERS].join(",")));
+  // Mark ancestors once rather than testing every candidate against every other
+  // candidate. Descendants of atomic tables/lists/paragraphs are never emitted twice.
+  const split = new Set<Element>();
+  for (const element of [...matched, ...containers]) {
+    const pause = checkpoint();
+    if (pause) await pause;
+    for (let parent: Element | null = containers.has(element) ? element : element.parentElement; parent; parent = parent.parentElement) {
+      if (split.has(parent)) break;
+      split.add(parent);
+    }
+  }
   const blocks: StructuredBlock[] = [];
   let nextId = 0;
   let section: Section = "body";
   let titleSeen = false;
-  for (const element of topLevel) {
-    const tag = element.tagName.toLowerCase();
-    if (tag === "figure" || tag === "img") {
-      const img =
-        tag === "img"
-          ? (element as HTMLImageElement)
-          : element.querySelector<HTMLImageElement>("img");
-      if (!img) continue;
-      const caption =
-        tag === "figure"
-          ? element.querySelector("figcaption")?.textContent?.trim() || undefined
-          : img.alt || undefined;
-      try {
-        const image = await resolveImage(
-          img.getAttribute("src") ?? "",
-          img.currentSrc || img.src,
-          options?.docId,
-        );
-        blocks.push({
-          id: nextId++,
-          kind: "figure",
-          text: caption ?? "",
-          page: null,
-          level: 0,
-          image,
-          caption,
-        });
-      } catch (err) {
-        console.warn("image resolve failed", err);
-      }
-      continue;
-    }
-    const text = (element.innerText || element.textContent || "").trim();
-    if (!text) {
-      // Markdown renders a lone image as <p><img></p>; keep it as a figure.
-      const inner = element.querySelector<HTMLImageElement>("img");
-      if (inner) {
-        const caption = inner.alt || undefined;
-        try {
-          blocks.push({
-            id: nextId++,
-            kind: "figure",
-            text: caption ?? "",
-            page: null,
-            level: 0,
-            image: await resolveImage(
-              inner.getAttribute("src") ?? "",
-              inner.currentSrc || inner.src,
-              options?.docId,
-            ),
-            caption,
-          });
-        } catch (err) {
-          console.warn("image resolve failed", err);
-        }
-      }
-      continue;
+
+  const emit = (element: HTMLElement, context: Element | null = element) => {
+    const tag = element.localName;
+    const text = contentPlainText(element);
+    const img = tag === "img" ? element : element.querySelector("img");
+    if (!text && !img && tag !== "hr") return;
+    const block = { id: nextId++, text, html: element.outerHTML, page: null, level: 0 };
+    if (img && (tag === "figure" || tag === "img" || !(element.textContent ?? "").trim())) {
+      const caption = element.querySelector("figcaption")?.textContent?.trim() || img.getAttribute("alt") || undefined;
+      blocks.push({ ...block, kind: "figure", image: img.getAttribute("src") ?? undefined, caption });
+      return;
     }
     if (/^h[1-6]$/.test(tag)) {
       const level = Number(tag.slice(1));
       const isTitle = !titleSeen && level === 1;
       if (isTitle) titleSeen = true;
-      blocks.push({
-        id: nextId++,
-        kind: isTitle ? "title" : "heading",
-        text,
-        page: null,
-        level: isTitle ? 0 : level,
-      });
+      blocks.push({ ...block, kind: isTitle ? "title" : "heading", level: isTitle ? 0 : level });
       const matchedSection = sectionForHeading(text);
       if (matchedSection) section = matchedSection;
       else if (section === "abstract") section = "body";
-      continue;
+      return;
     }
     let kind: BlockKind;
-    if (element.closest(FOOTNOTE_SELECTOR) || tag === "aside") kind = "note";
+    if (context?.closest(FOOTNOTE_SELECTOR) || tag === "aside") kind = "note";
     else if (tag === "figcaption" || CAPTION_RE.test(text)) kind = "caption";
     else if (section === "abstract") kind = "abstract";
     else if (section === "references") kind = "references";
     else if (section === "notes") kind = "note";
     else kind = "paragraph";
-    blocks.push({ id: nextId++, kind, text, page: null, level: 0 });
+    blocks.push({ ...block, kind });
+  };
+
+  const visit = async (parent: ParentNode) => {
+    let pending: ChildNode[] = [];
+    const flush = () => {
+      if (!pending.length) return;
+      const context = parent.nodeType === 1 ? parent as Element : null;
+      let wrapper = context ? context.cloneNode(false) as HTMLElement : fragment.ownerDocument.createElement("div");
+      for (const child of pending) wrapper.appendChild(child.cloneNode(true));
+      // Preserve inline ancestors when a nonstandard wrapper contains blocks.
+      for (let ancestor = context?.parentElement; ancestor && !HTML_CONTAINERS.has(ancestor.localName); ancestor = ancestor.parentElement) {
+        const outer = ancestor.cloneNode(false) as HTMLElement;
+        outer.appendChild(wrapper);
+        wrapper = outer;
+      }
+      emit(wrapper, context);
+      pending = [];
+    };
+    for (const child of parent.childNodes) {
+      const pause = checkpoint();
+      if (pause) await pause;
+      if (child.nodeType === 1 && matched.has(child as HTMLElement)) {
+        flush();
+        emit(child as HTMLElement);
+      } else if (child.nodeType === 1 && split.has(child as Element)) {
+        flush();
+        await visit(child as Element);
+      } else {
+        // Includes bare text, inline formatting and images: keep their order.
+        pending.push(child);
+      }
+    }
+    flush();
+  };
+  await visit(fragment);
+  throwIfContentAborted(options?.signal);
+  return { blocks, removedLines: 0, notice };
+}
+
+/** Split plain text into one block per non-empty line, so each line can be translated on its own. */
+export function extractTextStructure(raw: string): DocumentStructure {
+  const blocks: StructuredBlock[] = [];
+  const lines = raw.replace(/\r\n/g, "\n").split("\n");
+  let nextId = 0;
+  for (const line of lines) {
+    const text = line.trim();
+    if (!text) continue;
+    blocks.push({ id: nextId++, kind: "paragraph", text, page: null, level: 0 });
   }
   return { blocks, removedLines: 0 };
 }
 
+const EPUB_CHAPTER_RE =
+  /^(第[0-9一二三四五六七八九十百千零两]+[章节部分卷回篇集]|[Cc]hapter\s+\d+|[Pp]art\s+\d+|序[言章]?|前言|目录|引言|绪论|结语|后记|附录|致谢)/;
+
+function normalizeHeadingText(text: string): string {
+  return text.replace(/\s+/g, "");
+}
+
 export async function extractEpubStructure(
-  rendition: Rendition,
-  options?: { docId?: string },
+  book: Book,
+  options?: {
+    docId?: string;
+    onProgress?: (done: number, total: number) => void;
+    signal?: AbortSignal;
+  },
 ): Promise<DocumentStructure> {
-  const contents = rendition.getContents();
-  const first = Array.isArray(contents) ? contents[0] : contents;
-  const document = first?.document;
-  if (!document) return { blocks: [], removedLines: 0 };
-  return extractHtmlStructure(document, options);
+  // `opened` resolves once the resource blob URLs are computed and the serialize
+  // hook is registered, so each section renders with its images already inlined.
+  throwIfContentAborted(options?.signal);
+  await waitForContent(book.opened, options?.signal);
+  const sections = (book.spine as unknown as { spineItems: EpubSection[] }).spineItems;
+  // Many EPUBs (calibre exports) set chapter titles as plain <p>, not <h1>. The
+  // navigation TOC is the authoritative list of those titles, so it is used to
+  // promote the matching paragraphs back to headings.
+  const navigation = await waitForContent(book.loaded.navigation, options?.signal);
+  const toc = flattenEpubNav((navigation.toc ?? []) as unknown as EpubNavNode[]);
+  const tocLevels = new Map<string, number>();
+  for (const entry of toc) {
+    const key = normalizeHeadingText(entry.text);
+    if (key && !tocLevels.has(key)) tocLevels.set(key, entry.level);
+  }
+  const blocks: StructuredBlock[] = [];
+  const parser = new DOMParser();
+  let nextId = 0;
+  let removedLines = 0;
+  let titleSeen = false;
+  let failedSections = 0;
+  const notices: string[] = [];
+  const checkpoint = contentCheckpoint(options?.signal);
+  for (let i = 0; i < sections.length; i++) {
+    throwIfContentAborted(options?.signal);
+    const section = sections[i];
+    const wasLoaded = Boolean(section.document || section.contents || section.output);
+    try {
+      const html = await waitForContent(section.render(book.load.bind(book)), options?.signal);
+      const document = parser.parseFromString(html, "text/html");
+      const part = await extractHtmlStructure(document, { docId: options?.docId, signal: options?.signal });
+      if (part.notice) notices.push(`${section.href}：${part.notice}`);
+      for (const block of part.blocks) {
+        const pause = checkpoint();
+        if (pause) await pause;
+        // Only the first chapter's title is the book title; later chapter titles
+        // are section headings, not a second book title.
+        if (block.kind === "title") {
+          if (titleSeen) {
+            block.kind = "heading";
+            block.level = 1;
+          } else {
+            titleSeen = true;
+          }
+        } else if (block.kind === "paragraph") {
+          const tocLevel = tocLevels.get(normalizeHeadingText(block.text));
+          if (tocLevel !== undefined) {
+            block.kind = "heading";
+            block.level = tocLevel;
+          } else if (
+            block.text.length < 50 &&
+            EPUB_CHAPTER_RE.test(block.text) &&
+            !/[。！？!?]$/.test(block.text)
+          ) {
+            block.kind = "heading";
+            block.level = 1;
+          }
+        }
+        block.id = nextId++;
+        blocks.push(block);
+      }
+      removedLines += part.removedLines;
+    } catch (err) {
+      throwIfContentAborted(options?.signal);
+      if (err && typeof err === "object" && "name" in err && err.name === "AbortError") throw err;
+      failedSections++;
+      console.warn("EPUB 章节解析失败", section.href, err);
+    } finally {
+      // A displayed rendition may own this section; do not invalidate its DOM.
+      if (!wasLoaded) section.unload();
+    }
+    options?.onProgress?.(i + 1, sections.length);
+  }
+  throwIfContentAborted(options?.signal);
+  if (failedSections) notices.unshift(`EPUB ${failedSections}/${sections.length} 个章节解析失败${failedSections === sections.length ? "，未能提取任何章节" : ""}。`);
+  return { blocks, removedLines, notice: notices.length ? notices.join("\n") : undefined };
 }

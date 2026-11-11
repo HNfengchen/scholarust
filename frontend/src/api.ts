@@ -71,6 +71,19 @@ export function readLayoutModel(): Promise<ArrayBuffer> {
   return invoke<ArrayBuffer>("read_layout_model");
 }
 
+export interface LayoutDetection {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  confidence: number;
+  classId: number;
+}
+
+export function detectLayout(png: Uint8Array): Promise<LayoutDetection[]> {
+  return invoke<LayoutDetection[]>("detect_layout", { png: Array.from(png) });
+}
+
 export function readDocumentImage(id: string, src: string): Promise<string> {
   return invoke<string>("read_document_image", { id, src });
 }

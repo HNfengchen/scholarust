@@ -32,7 +32,8 @@ function buildLine(row: PdfTextItem[]): TextLine {
   }
   const left = Math.min(...ordered.map((i) => i.x));
   const right = Math.max(...ordered.map((i) => i.x + i.width));
-  const size = Math.max(...ordered.map((i) => i.size));
+  const weight = ordered.reduce((sum, item) => sum + item.str.length, 0);
+  const size = ordered.reduce((sum, item) => sum + item.size * item.str.length, 0) / weight;
   const baseline = ordered.reduce((sum, i) => sum + i.baseline, 0) / ordered.length;
   return { x: left, baseline, width: right - left, size, text };
 }
@@ -47,7 +48,7 @@ export function groupItemsIntoLines(items: PdfTextItem[]): TextLine[] {
   for (const item of sorted) {
     // The row keeps the baseline of its first item as a fixed reference, so the
     // tolerance cannot widen as the row grows.
-    if (row.length > 0 && Math.abs(item.baseline - row[0].baseline) > Math.max(1, rowSize * 0.35)) {
+    if (row.length > 0 && Math.abs(item.baseline - row[0].baseline) > Math.max(1, Math.max(rowSize, item.size) * 0.4)) {
       lines.push(buildLine(row));
       row = [];
       rowSize = 0;

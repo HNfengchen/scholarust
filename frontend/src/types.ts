@@ -59,6 +59,7 @@ export interface TranslationResult {
 export interface DocumentContent {
   kind: DocumentKind;
   html: string | null;
+  raw: string | null;
   path: string;
 }
 

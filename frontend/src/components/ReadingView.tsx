@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { CONTENT_KINDS } from "../structure";
 import type { DocumentStructure, StructuredBlock } from "../structure";
@@ -44,6 +44,50 @@ function readStoredShowTranslation(): boolean {
   }
 }
 
+const ReadingBlock = memo(function ReadingBlock({ block, translation, showTranslation, onTranslate }: {
+  block: StructuredBlock;
+  translation?: BlockTranslation;
+  showTranslation: boolean;
+  onTranslate: (block: StructuredBlock) => void;
+}) {
+  if (block.kind === "figure") {
+    if (block.html) return <div className="reading-figure reading-rich" data-block-id={block.id} dangerouslySetInnerHTML={{ __html: block.html }} />;
+    return block.image ? (
+      <figure className="reading-figure" data-block-id={block.id}>
+        <img src={block.image} alt={block.caption ?? "文档图表"} loading="lazy" decoding="async" />
+        {block.caption && <figcaption>{block.caption}</figcaption>}
+      </figure>
+    ) : null;
+  }
+  const content = block.html ? (
+    <div className="reading-text reading-rich" dangerouslySetInnerHTML={{ __html: block.html }} />
+  ) : block.kind === "title" ? (
+    <h1 className="reading-text">{block.text}</h1>
+  ) : block.kind === "heading" ? (
+    block.level <= 1 ? <h2 className="reading-text">{block.text}</h2> : <h3 className="reading-text">{block.text}</h3>
+  ) : <p className="reading-text">{block.text}</p>;
+  return (
+    <div className={`reading-block reading-translatable reading-kind-${block.kind}`} data-block-id={block.id}>
+      {CONTENT_KINDS.includes(block.kind) && translation?.status !== "loading" && (
+        <button className="block-translate-btn" title="翻译这一段" onClick={() => onTranslate(block)}>译</button>
+      )}
+      {content}
+      {showTranslation && translation?.status === "done" && translation.result && (
+        <div className="reading-translation">{translation.result.result}</div>
+      )}
+      {translation?.status === "loading" && (
+        <div className="reading-translating"><span className="spinner" /> 正在翻译…</div>
+      )}
+      {translation?.status === "error" && (
+        <div className="reading-error">
+          翻译失败：{translation.message ?? "未知错误"}
+          <button className="btn btn-small" onClick={() => onTranslate(block)}>重试</button>
+        </div>
+      )}
+    </div>
+  );
+});
+
 export default function ReadingView({
   title,
   structure,
@@ -80,8 +124,8 @@ export default function ReadingView({
     setNoticeDismissed(false);
   }, [structure]);
 
-  const blocks = structure?.blocks ?? [];
-  const contentBlocks = blocks.filter((block) => CONTENT_KINDS.includes(block.kind));
+  const blocks = useMemo(() => structure?.blocks ?? [], [structure]);
+  const contentBlocks = useMemo(() => blocks.filter((block) => CONTENT_KINDS.includes(block.kind)), [blocks]);
   const doneCount = contentBlocks.filter((block) => translations[block.id]?.status === "done").length;
   // An errored or still-loading block is not "done", so the batch button stays
   // alive for a retry instead of claiming everything is translated.
@@ -90,41 +134,6 @@ export default function ReadingView({
   const handleTranslateContent = async () => {
     await onTranslateContent();
     setShowTranslation(true);
-  };
-
-  const blockButton = (block: StructuredBlock) =>
-    CONTENT_KINDS.includes(block.kind) && translations[block.id]?.status !== "loading" ? (
-      <button
-        className="block-translate-btn"
-        title="翻译这一段"
-        onClick={() => onTranslateBlock(block)}
-      >
-        译
-      </button>
-    ) : null;
-
-  const renderStatus = (block: StructuredBlock) => {
-    const translation = translations[block.id];
-    return (
-      <Fragment>
-        {showTranslation && translation?.status === "done" && translation.result && (
-          <div className="reading-translation">{translation.result.result}</div>
-        )}
-        {translation?.status === "loading" && (
-          <div className="reading-translating">
-            <span className="spinner" /> 正在翻译…
-          </div>
-        )}
-        {translation?.status === "error" && (
-          <div className="reading-error">
-            翻译失败：{translation.message ?? "未知错误"}
-            <button className="btn btn-small" onClick={() => onTranslateBlock(block)}>
-              重试
-            </button>
-          </div>
-        )}
-      </Fragment>
-    );
   };
 
   return (
@@ -187,7 +196,7 @@ export default function ReadingView({
           <span className="spinner spinner-lg" />
           <div>
             {extractProgress
-              ? `正在解析版面… ${extractProgress.done}/${extractProgress.total} 页`
+              ? `正在解析文档… ${extractProgress.done}/${extractProgress.total}`
               : "正在解析文档…"}
           </div>
           <button className="btn btn-small" onClick={onCancel}>
@@ -213,54 +222,15 @@ export default function ReadingView({
               <div className="empty-hint">未解析到可阅读的内容块，请回到原文视图查看</div>
             )}
 
-            {blocks.map((block) => {
-              if (block.kind === "figure") {
-                if (!block.image) return null;
-                return (
-                  <figure className="reading-figure" key={block.id}>
-                    <img src={block.image} alt={block.caption ?? ""} loading="lazy" />
-                    {block.caption && <figcaption>{block.caption}</figcaption>}
-                  </figure>
-                );
-              }
-
-              if (block.kind === "title") {
-                return (
-                  <div className="reading-translatable" key={block.id}>
-                    {blockButton(block)}
-                    <h1 className="reading-text">{block.text}</h1>
-                    {renderStatus(block)}
-                  </div>
-                );
-              }
-
-              if (block.kind === "heading") {
-                return (
-                  <div className="reading-translatable" key={block.id}>
-                    {blockButton(block)}
-                    {block.level <= 1 ? (
-                      <h2 className="reading-text">{block.text}</h2>
-                    ) : (
-                      <h3 className="reading-text">{block.text}</h3>
-                    )}
-                    {renderStatus(block)}
-                  </div>
-                );
-              }
-
-              const className =
-                block.kind === "reference"
-                  ? "reading-block reading-translatable reading-kind-reference"
-                  : `reading-block reading-translatable reading-kind-${block.kind}`;
-
-              return (
-                <div className={className} key={block.id}>
-                  {blockButton(block)}
-                  <p className="reading-text">{block.text}</p>
-                  {renderStatus(block)}
-                </div>
-              );
-            })}
+            {blocks.map((block) => (
+              <ReadingBlock
+                key={block.id}
+                block={block}
+                translation={translations[block.id]}
+                showTranslation={showTranslation}
+                onTranslate={onTranslateBlock}
+              />
+            ))}
           </div>
         </>
       )}

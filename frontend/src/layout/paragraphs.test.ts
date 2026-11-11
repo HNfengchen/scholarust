@@ -20,6 +20,9 @@ describe("headingLevelForLine", () => {
     expect(headingLevelForLine(line(0, "Sub", 0, 11), 10)).toBe(3);
     expect(headingLevelForLine(line(0, "Body text", 0, 10), 10)).toBeNull();
   });
+  it("does not mistake measurements for numbered headings", () => {
+    expect(headingLevelForLine(line(0, "0.09. It indicates the error", 0, 10), 10)).toBeNull();
+  });
   it("detects numbered headings", () => {
     expect(headingLevelForLine(line(0, "2.1 Related work", 0, 10), 10)).toBe(2);
     expect(headingLevelForLine(line(0, "Introduction", 0, 10), 10)).toBeNull();
@@ -27,6 +30,9 @@ describe("headingLevelForLine", () => {
 });
 
 describe("mergeLinesIntoParagraphs", () => {
+  it("starts a new paragraph at the next column", () => {
+    expect(mergeLinesIntoParagraphs([line(700, "last left line"), line(80, "first right line", 300)], 10)).toHaveLength(2);
+  });
   it("splits when the line gap is large", () => {
     const groups = mergeLinesIntoParagraphs([line(0, "one"), line(12, "two"), line(60, "three")], 10);
     expect(groups.map((g) => g.map((l) => l.text).join(" "))).toEqual(["one two", "three"]);

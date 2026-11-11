@@ -18,6 +18,7 @@ interface Props {
   batchRunning: boolean;
   onTranslateBlock: (block: StructuredBlock) => void;
   onTranslateContent: () => Promise<void>;
+  onCancel: () => void;
 }
 
 function initialFontSize(): number {
@@ -47,6 +48,7 @@ export default function ReadingView({
   batchRunning,
   onTranslateBlock,
   onTranslateContent,
+  onCancel,
 }: Props) {
   const [fontSize, setFontSize] = useState(initialFontSize);
   const [showTranslation, setShowTranslation] = useState(initialShowTranslation);
@@ -78,6 +80,17 @@ export default function ReadingView({
   const pendingCount = contentBlocks.filter(
     (block) => translations[block.id]?.status !== "done" && translations[block.id]?.status !== "loading",
   ).length;
+
+  const blockButton = (block: StructuredBlock) =>
+    CONTENT_KINDS.includes(block.kind) && translations[block.id]?.status !== "loading" ? (
+      <button
+        className="block-translate-btn"
+        title="翻译这一段"
+        onClick={() => onTranslateBlock(block)}
+      >
+        译
+      </button>
+    ) : null;
 
   const translationFor = (block: StructuredBlock) => {
     const translation = translations[block.id];
@@ -165,6 +178,9 @@ export default function ReadingView({
               ? `正在识别版面… ${extractProgress.done}/${extractProgress.total} 页`
               : "正在解析文档…"}
           </div>
+          <button className="btn btn-small" onClick={onCancel}>
+            取消解析
+          </button>
         </div>
       ) : (
         <>
@@ -195,7 +211,8 @@ export default function ReadingView({
                 }
                 if (block.kind === "title") {
                   return (
-                    <div key={block.id}>
+                    <div key={block.id} className="reading-translatable">
+                      {blockButton(block)}
                       <h1 className="reading-text">{block.text}</h1>
                       {translationFor(block)}
                     </div>
@@ -203,7 +220,8 @@ export default function ReadingView({
                 }
                 if (block.kind === "heading") {
                   return (
-                    <div key={block.id}>
+                    <div key={block.id} className="reading-translatable">
+                      {blockButton(block)}
                       {block.level <= 1 ? (
                         <h2 className="reading-text">{block.text}</h2>
                       ) : (
@@ -214,7 +232,11 @@ export default function ReadingView({
                   );
                 }
                 return (
-                  <div key={block.id} className={`reading-block reading-kind-${block.kind}`}>
+                  <div
+                    key={block.id}
+                    className={`reading-block reading-translatable reading-kind-${block.kind}`}
+                  >
+                    {blockButton(block)}
                     <p className="reading-text">{block.text}</p>
                     {translationFor(block)}
                   </div>

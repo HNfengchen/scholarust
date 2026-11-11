@@ -85,8 +85,17 @@ function paragraphLineCounts(lines: TextLine[], tops: number[]): number[] {
 
 export async function extractPdfStructureWithLayout(
   doc: PDFDocumentProxy,
-  options: { onProgress?: (done: number, total: number) => void },
+  options: {
+    onProgress?: (done: number, total: number) => void;
+    signal?: AbortSignal;
+  },
 ): Promise<DocumentStructure> {
+  const throwIfAborted = () => {
+    if (options.signal?.aborted) {
+      throw new DOMException("解析已取消", "AbortError");
+    }
+  };
+  throwIfAborted();
   const session = await loadLayoutSession();
   const collected: NewBlock[] = [];
   let removedLines = 0;
@@ -94,10 +103,12 @@ export async function extractPdfStructureWithLayout(
   let titleEmitted = false;
 
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+    throwIfAborted();
     const page = await doc.getPage(pageNumber);
     const base = page.getViewport({ scale: 1 });
-    let scale = Math.max(2, 1024 / base.width);
-    scale = Math.min(scale, 3200 / Math.max(base.width, base.height));
+    // 模型输入固定 1024，渲染到约 1024 宽即可，避免 2x 起步的多余像素
+    let scale = Math.max(1, 1024 / base.width);
+    scale = Math.min(scale, 2, 3200 / Math.max(base.width, base.height));
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
     canvas.width = Math.floor(viewport.width);
@@ -121,6 +132,7 @@ export async function extractPdfStructureWithLayout(
     }
 
     const { detections } = await runLayoutOnCanvas(session, canvas);
+    throwIfAborted();
     const { assigned, unassigned, removed } = assignTextItems(items, detections);
     removedLines += removed;
     const bodySize = weightedBodySize(items, 10 * scale);

@@ -85,6 +85,13 @@ export interface SelectionTranslation {
   message?: string;
 }
 
+export interface Note {
+  id: string;
+  createdAt: number;
+  text: string;
+  quote?: string | null;
+}
+
 export const TARGET_LANGUAGES: { value: string; label: string }[] = [
   { value: "zh-CN", label: "简体中文" },
   { value: "en", label: "English" },

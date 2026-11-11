@@ -6,6 +6,7 @@ import type {
   LayoutModelInfo,
   LibraryData,
   ModelStatus,
+  Note,
   PluginInfo,
   ServiceInfo,
   Settings,
@@ -38,12 +39,16 @@ export function updateDocumentMeta(
   return invoke<DocumentInfo>("update_document_meta", { id, tags, collectionIds });
 }
 
-export function getNotes(id: string): Promise<string> {
-  return invoke<string>("get_notes", { id });
+export function listNotes(id: string): Promise<Note[]> {
+  return invoke<Note[]>("list_notes", { id });
 }
 
-export function saveNotes(id: string, content: string): Promise<void> {
-  return invoke<void>("save_notes", { id, content });
+export function addNote(id: string, text: string, quote?: string): Promise<Note> {
+  return invoke<Note>("add_note", { id, text, quote: quote ?? null });
+}
+
+export function deleteNote(id: string, noteId: string): Promise<void> {
+  return invoke<void>("delete_note", { id, noteId });
 }
 
 export function modelStatus(): Promise<ModelStatus> {

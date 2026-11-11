@@ -59,6 +59,7 @@ export default function App() {
   const [blockTranslations, setBlockTranslations] = useState<Record<number, BlockTranslation>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [selection, setSelection] = useState<SelectionTranslation | null>(null);
+  const [selectionText, setSelectionText] = useState<string | null>(null);
   const [activePanelId, setActivePanelId] = useState<string | null>("translate");
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +74,7 @@ export default function App() {
   const activeDocIdRef = useRef<string | null>(null);
   const batchSeq = useRef(0);
   const selectionSeq = useRef(0);
+  const readingAbortRef = useRef<AbortController | null>(null);
 
   const showError = useCallback((message: string) => setError(message), []);
 
@@ -126,6 +128,8 @@ export default function App() {
   useEffect(() => {
     activeDocIdRef.current = activeDoc?.id ?? null;
     batchSeq.current++;
+    readingAbortRef.current?.abort();
+    readingAbortRef.current = null;
     setBatchRunning(false);
     if (!activeDoc) {
       setContent(null);
@@ -137,6 +141,7 @@ export default function App() {
     setStructure(null);
     setExtractProgress(null);
     setBlockTranslations({});
+    setSelectionText(null);
     setContentLoading(true);
     api
       .getContent(activeDoc.id)
@@ -299,6 +304,14 @@ export default function App() {
     [showError],
   );
 
+  const cancelReading = useCallback(() => {
+    readingAbortRef.current?.abort();
+    readingAbortRef.current = null;
+    setStructureLoading(false);
+    setExtractProgress(null);
+    setMode("original");
+  }, []);
+
   const startReading = useCallback(async () => {
     const doc = activeDoc;
     if (!doc || structureLoading) return;
@@ -316,6 +329,8 @@ export default function App() {
       showError("阅读器尚未就绪，无法解析文档结构");
       return;
     }
+    const controller = new AbortController();
+    readingAbortRef.current = controller;
     setStructureLoading(true);
     setStructure(null);
     setExtractProgress(null);
@@ -325,21 +340,25 @@ export default function App() {
       const parsed = await (extract
         ? extract((done, total) => {
             if (activeDocIdRef.current === doc.id) setExtractProgress({ done, total });
-          })
+          }, controller.signal)
         : fallback!());
-      if (activeDocIdRef.current !== doc.id) return;
+      if (controller.signal.aborted || activeDocIdRef.current !== doc.id) return;
       if (parsed.blocks.length === 0 && !parsed.notice) throw new Error("未解析到可阅读的内容块");
       readingCache.current.set(doc.id, { structure: parsed, translations: {} });
       setStructure(parsed);
     } catch (err) {
+      if (controller.signal.aborted) return;
       if (activeDocIdRef.current === doc.id) {
         showError(`阅读模式解析失败：${String(err)}`);
         setMode("original");
       }
     } finally {
-      if (activeDocIdRef.current === doc.id) {
-        setStructureLoading(false);
-        setExtractProgress(null);
+      if (readingAbortRef.current === controller) {
+        readingAbortRef.current = null;
+        if (activeDocIdRef.current === doc.id) {
+          setStructureLoading(false);
+          setExtractProgress(null);
+        }
       }
     }
   }, [activeDoc, structureLoading, showError]);
@@ -415,9 +434,9 @@ export default function App() {
   const handleModeChange = useCallback(
     (next: ViewMode) => {
       if (next === "reading") void startReading();
-      else setMode("original");
+      else cancelReading();
     },
-    [startReading],
+    [startReading, cancelReading],
   );
 
   const refreshPlugins = useCallback(async () => {
@@ -440,6 +459,7 @@ export default function App() {
       const trimmed = text.trim();
       if (!trimmed) return;
       const seq = ++selectionSeq.current;
+      setSelectionText(trimmed);
       setActivePanelId("translate");
       setSelection({ source: trimmed, status: "loading" });
       const serviceId = settings?.service || undefined;
@@ -481,6 +501,7 @@ export default function App() {
       outlineRef,
       readerHostRef,
       selection,
+      selectionText,
       services,
       settings,
       plugins,
@@ -495,6 +516,7 @@ export default function App() {
       activeDoc,
       content,
       selection,
+      selectionText,
       services,
       settings,
       plugins,
@@ -587,6 +609,7 @@ export default function App() {
                     batchRunning={batchRunning}
                     onTranslateBlock={(block) => void translateBlock(block)}
                     onTranslateContent={() => translateContent()}
+                    onCancel={cancelReading}
                   />
                 )}
               </>

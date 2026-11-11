@@ -19,6 +19,7 @@ export interface PanelContext {
   outlineRef: MutableRefObject<OutlineExtractor | null>;
   readerHostRef: RefObject<HTMLDivElement>;
   selection: SelectionTranslation | null;
+  selectionText: string | null;
   services: ServiceInfo[];
   settings: Settings | null;
   plugins: PluginInfo[];

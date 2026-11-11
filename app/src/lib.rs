@@ -21,6 +21,12 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
 
             let library = Library::load(data_dir.join("library.json"));
+            // asset 作用域不随重启持久化，重新授权文库内所有文档，否则渲染失败
+            for doc in &library.documents {
+                if let Err(e) = app.asset_protocol_scope().allow_file(&doc.path) {
+                    eprintln!("asset scope allow failed for {}: {e}", doc.path);
+                }
+            }
             let settings = Settings::load(&data_dir.join("settings.json"));
             let openai_config = Arc::new(RwLock::new(settings.to_openai_config()));
 
@@ -69,8 +75,9 @@ pub fn run() {
             commands::rename_collection,
             commands::delete_collection,
             commands::update_document_meta,
-            commands::get_notes,
-            commands::save_notes,
+            commands::list_notes,
+            commands::add_note,
+            commands::delete_note,
             commands::model_status,
             commands::start_model,
             commands::stop_model,

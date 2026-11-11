@@ -71,28 +71,36 @@ export default function PdfReader({ url, extractorRef, structureRef, readingStru
         return structurePromise;
       };
       let readingPromise: Promise<DocumentStructure> | null = null;
-      readingStructureRef.current = (onProgress) => {
-        readingPromise ??= (async () => {
-          try {
-            const info = await api.layoutModelInfo();
-            if (!info.exists) {
+      readingStructureRef.current = (onProgress, signal) => {
+        if (!readingPromise) {
+          const promise = (async () => {
+            try {
+              const info = await api.layoutModelInfo();
+              if (!info.exists) {
+                return {
+                  ...(await extractPdfStructure(doc)),
+                  notice: `未找到版面模型，已使用简化抽取：${info.path}`,
+                };
+              }
+              return await extractPdfStructureWithLayout(doc, {
+                onProgress,
+                signal,
+              });
+            } catch (err) {
+              if (signal?.aborted) throw err;
+              console.warn("layout extraction failed", err);
+              const detail = err instanceof Error ? err.message : String(err);
               return {
                 ...(await extractPdfStructure(doc)),
-                notice: `未找到版面模型，已使用简化抽取：${info.path}`,
+                notice: `版面模型运行失败，已使用简化抽取（${detail}）`,
               };
             }
-            return await extractPdfStructureWithLayout(doc, {
-              onProgress,
-            });
-          } catch (err) {
-            console.warn("layout extraction failed", err);
-            const detail = err instanceof Error ? err.message : String(err);
-            return {
-              ...(await extractPdfStructure(doc)),
-              notice: `版面模型运行失败，已使用简化抽取（${detail}）`,
-            };
-          }
-        })();
+          })();
+          readingPromise = promise;
+          promise.catch(() => {
+            if (readingPromise === promise) readingPromise = null;
+          });
+        }
         return readingPromise;
       };
       let outlinePromise: Promise<OutlineEntry[]> | null = null;

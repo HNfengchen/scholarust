@@ -2,7 +2,7 @@ use crate::state::{AppState, Settings};
 use scholarust_core::{markdown, DocumentInfo};
 use scholarust_plugin_host::{PluginHost, PluginInfo};
 use scholarust_translate::{ServiceInfo, TranslateResult};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
@@ -285,21 +285,106 @@ pub async fn update_document_meta(
     Ok(doc)
 }
 
-#[tauri::command]
-pub async fn get_notes(state: State<'_, AppState>, id: String) -> Result<String, String> {
-    let file = state.data_dir.join("notes").join(format!("{id}.md"));
-    Ok(std::fs::read_to_string(file).unwrap_or_default())
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    pub id: String,
+    pub created_at: i64,
+    pub text: String,
+    #[serde(default)]
+    pub quote: Option<String>,
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn new_note_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{nanos:032x}")
+}
+
+fn notes_file(state: &AppState, id: &str) -> Result<std::path::PathBuf, String> {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(format!("invalid document id: {id}"));
+    }
+    Ok(state.data_dir.join("notes").join(format!("{id}.json")))
+}
+
+fn write_notes(state: &AppState, id: &str, notes: &[Note]) -> Result<(), String> {
+    let file = notes_file(state, id)?;
+    std::fs::create_dir_all(file.parent().unwrap()).map_err(err)?;
+    let raw = serde_json::to_string_pretty(notes).map_err(err)?;
+    std::fs::write(file, raw).map_err(err)
+}
+
+fn read_notes(state: &AppState, id: &str) -> Result<Vec<Note>, String> {
+    let file = notes_file(state, id)?;
+    if file.is_file() {
+        let raw = std::fs::read_to_string(&file).map_err(err)?;
+        return serde_json::from_str(&raw).map_err(err);
+    }
+    let legacy = state.data_dir.join("notes").join(format!("{id}.md"));
+    let content = std::fs::read_to_string(&legacy).unwrap_or_default();
+    if content.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let created_at = std::fs::metadata(&legacy)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_else(now_ms);
+    let notes = vec![Note {
+        id: new_note_id(),
+        created_at,
+        text: content,
+        quote: None,
+    }];
+    write_notes(state, id, &notes)?;
+    let _ = std::fs::remove_file(&legacy);
+    Ok(notes)
 }
 
 #[tauri::command]
-pub async fn save_notes(
+pub async fn list_notes(state: State<'_, AppState>, id: String) -> Result<Vec<Note>, String> {
+    read_notes(&state, &id)
+}
+
+#[tauri::command]
+pub async fn add_note(
     state: State<'_, AppState>,
     id: String,
-    content: String,
+    text: String,
+    quote: Option<String>,
+) -> Result<Note, String> {
+    let mut notes = read_notes(&state, &id)?;
+    let note = Note {
+        id: new_note_id(),
+        created_at: now_ms(),
+        text,
+        quote,
+    };
+    notes.push(note.clone());
+    write_notes(&state, &id, &notes)?;
+    Ok(note)
+}
+
+#[tauri::command]
+pub async fn delete_note(
+    state: State<'_, AppState>,
+    id: String,
+    note_id: String,
 ) -> Result<(), String> {
-    let dir = state.data_dir.join("notes");
-    std::fs::create_dir_all(&dir).map_err(err)?;
-    std::fs::write(dir.join(format!("{id}.md")), content).map_err(err)
+    let mut notes = read_notes(&state, &id)?;
+    notes.retain(|note| note.id != note_id);
+    write_notes(&state, &id, &notes)
 }
 
 #[tauri::command]

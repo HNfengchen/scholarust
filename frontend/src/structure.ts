@@ -33,6 +33,7 @@ export type StructureExtractor = () => Promise<DocumentStructure>;
 
 export type ReadingStructureExtractor = (
   onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
 ) => Promise<DocumentStructure>;
 
 export const CONTENT_KINDS: BlockKind[] = ["title", "heading", "abstract", "paragraph", "note"];

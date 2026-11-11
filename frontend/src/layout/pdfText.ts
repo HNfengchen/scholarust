@@ -1,5 +1,7 @@
 import type { PdfJsTextItem, PdfTextItem, TextLine } from "./types";
 
+export type { PdfTextItem, TextLine };
+
 /** Convert pdf.js text items into page-space items (origin at the page top-left). */
 export function itemsFromTextContent(items: PdfJsTextItem[], pageHeight: number): PdfTextItem[] {
   const out: PdfTextItem[] = [];

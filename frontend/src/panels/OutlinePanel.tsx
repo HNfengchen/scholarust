@@ -4,6 +4,8 @@ import { collectHeadings, scrollToElement, scrollToPage } from "./readerDom";
 import { outlineEntriesFromHeadings } from "../outline";
 import type { OutlineEntry } from "../outline";
 
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 export default function OutlinePanel({
   document,
   content,
@@ -17,81 +19,99 @@ export default function OutlinePanel({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!document || !content) {
-      setEntries([]);
-      return;
-    }
+    setEntries([]);
+    if (!document) return;
     let cancelled = false;
     setLoading(true);
-    setEntries([]);
-    const run = async () => {
-      let extractor = outlineRef.current;
+
+    const fromReader = async (): Promise<OutlineEntry[]> => {
+      let load = outlineRef.current;
       let tries = 0;
-      while (!extractor && tries++ < 20 && !cancelled) {
-        await new Promise((resolve) => window.setTimeout(resolve, 300));
-        extractor = outlineRef.current;
+      while (!load && tries++ < 20 && !cancelled) {
+        await sleep(300);
+        load = outlineRef.current;
+      }
+      if (!load) return [];
+      try {
+        return await load();
+      } catch {
+        return [];
+      }
+    };
+
+    const fromPdfStructure = async (): Promise<OutlineEntry[]> => {
+      let extract = structureRef.current;
+      let tries = 0;
+      while (!extract && tries++ < 20 && !cancelled) {
+        await sleep(300);
+        extract = structureRef.current;
+      }
+      if (!extract) return [];
+      try {
+        const structure = await extract();
+        return structure.blocks
+          .filter((block) => block.kind === "heading" || block.kind === "title")
+          .map((block, index) => ({
+            id: `block-${block.id}-${index}`,
+            text: block.text,
+            level: block.kind === "title" ? 1 : Math.min(block.level || 2, 6),
+            page: block.page ?? undefined,
+          }));
+      } catch {
+        return [];
+      }
+    };
+
+    const fromDom = async (): Promise<OutlineEntry[]> => {
+      for (let attempt = 0; attempt <= 12 && !cancelled; attempt += 1) {
+        const headings = collectHeadings(readerHostRef.current);
+        if (headings.length > 0) return outlineEntriesFromHeadings(headings);
+        await sleep(400);
+      }
+      return [];
+    };
+
+    const run = async () => {
+      let found = await fromReader();
+      if (!cancelled && found.length === 0) {
+        found = isPdf ? await fromPdfStructure() : await fromDom();
       }
       if (cancelled) return;
-      let result: OutlineEntry[] = [];
-      if (extractor) {
-        try {
-          result = await extractor();
-        } catch {
-          /* fall through to fallbacks */
-        }
-      }
-      if (cancelled) return;
-      if (result.length === 0 && isPdf) {
-        let extract = structureRef.current;
-        let structTries = 0;
-        while (!extract && structTries++ < 20 && !cancelled) {
-          await new Promise((resolve) => window.setTimeout(resolve, 300));
-          extract = structureRef.current;
-        }
-        if (cancelled) return;
-        if (extract) {
-          try {
-            const structure = await extract();
-            if (cancelled) return;
-            result = structure.blocks
-              .filter((block) => block.kind === "heading" || block.kind === "title")
-              .map((block) => ({
-                id: `struct-${block.id}`,
-                text: block.text,
-                level: block.kind === "title" ? 1 : Math.min(block.level || 2, 6),
-                page: block.page ?? undefined,
-              }));
-          } catch {
-            /* ignore extraction errors */
-          }
-        }
-      }
-      if (cancelled) return;
-      if (result.length === 0 && !isPdf) {
-        let attempts = 0;
-        while (result.length === 0 && attempts++ < 12 && !cancelled) {
-          result = outlineEntriesFromHeadings(collectHeadings(readerHostRef.current));
-          if (result.length === 0) {
-            await new Promise((resolve) => window.setTimeout(resolve, 400));
-          }
-        }
-      }
-      if (cancelled) return;
-      setEntries(result);
+      setEntries(found);
       setLoading(false);
     };
+
     void run();
     return () => {
       cancelled = true;
     };
   }, [document, content, isPdf, structureRef, outlineRef, readerHostRef]);
 
+  const handleClick = (entry: OutlineEntry) => {
+    onShowOriginal();
+    if (entry.action) {
+      entry.action();
+      return;
+    }
+    if (entry.page != null) {
+      const page = entry.page;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => scrollToPage(readerHostRef.current, page)),
+      );
+      return;
+    }
+    if (entry.element) {
+      const element = entry.element;
+      requestAnimationFrame(() => requestAnimationFrame(() => scrollToElement(element)));
+    }
+  };
+
   return (
     <div className="panel-body">
       {!document && <div className="empty-hint">未打开文档</div>}
       {document && loading && (
         <div className="empty-hint">
-          <span className="spinner" /> 正在读取大纲…
+          <span className="spinner" /> 正在解析标题大纲…
         </div>
       )}
       {document && !loading && entries.length === 0 && (
@@ -100,20 +120,12 @@ export default function OutlinePanel({
         </div>
       )}
       {document &&
+        !loading &&
         entries.map((entry) => (
           <div
             key={entry.id}
-            className={`outline-item outline-h${Math.min(entry.level, 6)}`}
-            onClick={() => {
-              onShowOriginal();
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
-                  if (entry.action) void entry.action();
-                  else if (entry.page != null) scrollToPage(readerHostRef.current, entry.page);
-                  else if (entry.element) scrollToElement(entry.element);
-                }),
-              );
-            }}
+            className={`outline-item outline-h${Math.min(entry.level || 1, 6)}`}
+            onClick={() => handleClick(entry)}
             title={entry.page != null ? `跳转到第 ${entry.page} 页` : undefined}
           >
             <span className="outline-text">{entry.text}</span>

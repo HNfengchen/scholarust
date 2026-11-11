@@ -19,7 +19,17 @@ interface Props {
   onSelection: (text: string) => void;
 }
 
-export default function Reader({ content, docId, zoom, extractorRef, structureRef, readingStructureRef, outlineRef, onError, onSelection }: Props) {
+export default function Reader({
+  content,
+  docId,
+  zoom,
+  extractorRef,
+  structureRef,
+  readingStructureRef,
+  outlineRef,
+  onError,
+  onSelection,
+}: Props) {
   const url = convertFileSrc(content.path);
   switch (content.kind) {
     case "pdf":

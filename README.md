@@ -5,11 +5,11 @@
 ## 功能
 
 - **多格式阅读**：PDF（pdf.js，含 TextLayer 文字选取）、EPUB（epub.js）、Word（mammoth）、Markdown / 纯文本
-- **阅读模式**：一键把文章重排为干净的阅读视图——按重复行/位置剔除页眉、页脚、页码，按字号与编号识别标题、章节、摘要、正文、注释、参考文献并分块；每块独立「翻译此块」按钮，「翻译正文」只批量翻译标题/章节/摘要/正文/注释（不含参考文献与图表说明），译文逐块即时回填
+- **阅读模式**：一键把文章重排为连续单栏文章——用 pdf.js 文字坐标重建行与段落，按栏缝覆盖直方图识别双栏并还原阅读顺序，按字号与编号识别标题层级，剔除重复页眉、页脚、页码，参考文献逐条切分并按编号排序；正文图片/表格按原位以图片形式保留（最长边 1600 px）。可调字号（14–24 px）、一键开关译文，「翻译正文」把逐段译文内联显示在原文下方
 - **划词翻译**：PDF/EPUB/HTML 中选中文字即自动翻译（PDF 通过 pdf.js TextLayer 支持选取）
 - **翻译服务**：Google、MyMemory、OpenAI 兼容接口、**本地模型（任意 GGUF）**、WASM 插件服务；自动语言检测、同语种跳过、候选服务回退、并发批量翻译；仅 OpenAI 兼容服务需要填写 Endpoint/Model/API Key
 - **左栏分类管理**（Zotero 式）：全部文档 / 最近打开 / 收藏夹（可嵌套、新建/重命名/删除）/ 按格式下拉筛选 / 标签（带计数），文档列表支持标签与 ⋯ 菜单
-- **右栏 IDE 式面板**（VS Code 式 activity bar）：翻译（含本地模型状态卡）、大纲（PDF 按识别出的真实标题跳转页码）、笔记、搜索、扩展（插件导入/启停/卸载）、设置；通过 `frontend/src/panels/registry.ts` 的 `registerPanel()` 注册新面板
+- **右栏 IDE 式面板**（VS Code 式 activity bar）：翻译（含本地模型状态卡）、大纲（PDF 优先用内嵌书签，EPUB 用导航目录，其余按 DOM 标题；书签缺失时回退到识别出的标题）、笔记、搜索、扩展（插件导入/启停/卸载）、设置；通过 `frontend/src/panels/registry.ts` 的 `registerPanel()` 注册新面板
 - **本地模型翻译**：任意 GGUF 权重（放入 `models/llm/` 自动扫描）+ llama.cpp Vulkan 后端，GPU 全量 offload，常驻服务免重载
 - **插件管理**：统一 ZIP 插件包格式，扩展面板内导入、启用/停用、卸载，翻译服务注册表实时更新
 
@@ -72,13 +72,17 @@ FP8 原始权重（可选，研究用）：`https://hf-mirror.com/tencent/Hy-MT2
 
 **效率优化**（`app/src/model.rs`）：`-ngl 99` 全量 GPU offload、`--flash-attn on`、16K 上下文、`--parallel 4` 连续批处理、常驻暖服务（启动一次反复使用）、段落级并发请求。实测 RTX 4070 Laptop：单段学术文本 1.9s（约 116 tok/s），4 段并发合计 1.9s。
 
-## 版面模型（阅读模式）
+## 版面模型（Stage 2，尚未启用）
 
-PDF 阅读模式使用 DocLayout-YOLO 识别版面。代码扫描 `models/layout/` 下的任意 `.onnx` 文件（有多个时取最近修改的一个），文件名不限。未放模型时会回退到简化抽取。
+当前的阅读模式是纯前端抽取（pdf.js 文字层坐标 + 分栏重排），**不需要**模型，也不会调用下面的文件。
 
-    mkdir -p models/layout
-    curl -L -o models/layout/doclayout_yolo_docstructbench_imgsz1024.onnx \
-      https://hf-mirror.com/wybxc/DocLayout-YOLO-DocStructBench-onnx/resolve/main/doclayout_yolo_docstructbench_imgsz1024.onnx
+DocLayout-YOLO 版面识别属于后续可选阶段（设计见 `docs/superpowers/specs/2026-11-11-layout-model-stage-design.md`），届时放好模型并在设置里开启即可；现在下载它不会有任何效果。预留路径（`models/layout/` 下任意 `.onnx` 都会被扫描到）：
+
+```bash
+mkdir -p models/layout
+curl -L -o models/layout/doclayout_yolo_docstructbench_imgsz1024.onnx \
+  https://hf-mirror.com/wybxc/DocLayout-YOLO-DocStructBench-onnx/resolve/main/doclayout_yolo_docstructbench_imgsz1024.onnx
+```
 
 ## 插件（统一 ZIP 包格式）
 

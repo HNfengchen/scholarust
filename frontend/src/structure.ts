@@ -11,6 +11,7 @@ export type BlockKind =
   | "references"
   | "caption"
   | "figure"
+  | "reference"
   | "meta";
 
 export interface StructuredBlock {
@@ -36,7 +37,14 @@ export type ReadingStructureExtractor = (
   signal?: AbortSignal,
 ) => Promise<DocumentStructure>;
 
-export const CONTENT_KINDS: BlockKind[] = ["title", "heading", "abstract", "paragraph", "note"];
+export const CONTENT_KINDS: BlockKind[] = [
+  "title",
+  "heading",
+  "abstract",
+  "paragraph",
+  "note",
+  "reference",
+];
 
 export const BLOCK_KIND_LABELS: Record<BlockKind, string> = {
   title: "标题",
@@ -45,6 +53,7 @@ export const BLOCK_KIND_LABELS: Record<BlockKind, string> = {
   paragraph: "正文",
   note: "注释",
   references: "参考文献",
+  reference: "文献",
   caption: "图表",
   figure: "图片",
   meta: "作者信息",
@@ -467,7 +476,31 @@ export async function extractHtmlStructure(
       continue;
     }
     const text = (element.innerText || element.textContent || "").trim();
-    if (!text) continue;
+    if (!text) {
+      // Markdown renders a lone image as <p><img></p>; keep it as a figure.
+      const inner = element.querySelector<HTMLImageElement>("img");
+      if (inner) {
+        const caption = inner.alt || undefined;
+        try {
+          blocks.push({
+            id: nextId++,
+            kind: "figure",
+            text: caption ?? "",
+            page: null,
+            level: 0,
+            image: await resolveImage(
+              inner.getAttribute("src") ?? "",
+              inner.currentSrc || inner.src,
+              options?.docId,
+            ),
+            caption,
+          });
+        } catch (err) {
+          console.warn("image resolve failed", err);
+        }
+      }
+      continue;
+    }
     if (/^h[1-6]$/.test(tag)) {
       const level = Number(tag.slice(1));
       const isTitle = !titleSeen && level === 1;

@@ -10,65 +10,68 @@ export interface OutlineEntry {
 
 export type OutlineExtractor = () => Promise<OutlineEntry[]>;
 
-export interface PdfOutlineNode {
-  title: string;
-  dest?: string | unknown[] | null;
+export interface PdfOutlineItem {
+  title?: string;
+  /** Raw pdf.js destination, or an already-resolved `{type:"page-ref",pageNumber}`. */
+  dest?: unknown;
+  /** 1-based page, when the caller resolved the destination itself. */
   page?: number;
-  items?: PdfOutlineNode[];
+  items?: PdfOutlineItem[];
 }
 
-export interface EpubNavNode {
-  label: string;
+export type PdfOutlineNode = PdfOutlineItem;
+
+export interface NavItem {
+  label?: string;
   href?: string;
-  subitems?: EpubNavNode[];
+  subitems?: NavItem[];
 }
 
-let pdfCounter = 0;
-let epubCounter = 0;
+export type EpubNavNode = NavItem;
 
-export function flattenPdfOutline(nodes: PdfOutlineNode[], level = 1): OutlineEntry[] {
+function pageRefPage(dest: unknown): number | undefined {
+  if (!dest || typeof dest !== "object") return undefined;
+  const ref = dest as { type?: string; pageNumber?: number };
+  if (ref.type !== "page-ref" || typeof ref.pageNumber !== "number") return undefined;
+  return ref.pageNumber + 1;
+}
+
+export function flattenPdfOutline(items: PdfOutlineItem[], level = 1): OutlineEntry[] {
   const entries: OutlineEntry[] = [];
-  for (const node of nodes) {
-    const title = node.title?.trim();
-    if (title) {
-      entries.push({
-        id: `pdf-${++pdfCounter}`,
-        text: title,
-        level,
-        page: node.page,
-      });
+  const walk = (list: PdfOutlineItem[], depth: number) => {
+    for (const item of list) {
+      const text = (item.title ?? "").trim();
+      if (text) {
+        const page = typeof item.page === "number" ? item.page : pageRefPage(item.dest);
+        entries.push({ id: `pdf-${entries.length}`, text, level: depth, page });
+      }
+      if (item.items?.length) walk(item.items, depth + 1);
     }
-    if (node.items?.length) {
-      entries.push(...flattenPdfOutline(node.items, level + 1));
-    }
-  }
+  };
+  walk(items, level);
   return entries;
 }
 
-export function flattenEpubNav(nodes: EpubNavNode[], level = 1): OutlineEntry[] {
+export function flattenEpubNav(items: NavItem[], level = 1): OutlineEntry[] {
   const entries: OutlineEntry[] = [];
-  for (const node of nodes) {
-    const label = node.label?.trim();
-    if (label) {
-      entries.push({
-        id: `epub-${++epubCounter}`,
-        text: label,
-        level,
-        href: node.href,
-      });
+  const walk = (list: NavItem[], depth: number) => {
+    for (const item of list) {
+      const text = (item.label ?? "").trim();
+      if (text) {
+        entries.push({ id: `nav-${entries.length}`, text, level: depth, href: item.href });
+      }
+      if (item.subitems?.length) walk(item.subitems, depth + 1);
     }
-    if (node.subitems?.length) {
-      entries.push(...flattenEpubNav(node.subitems, level + 1));
-    }
-  }
+  };
+  walk(items, level);
   return entries;
 }
 
 export function outlineEntriesFromHeadings(
-  headings: Array<{ text: string; level: number; element: HTMLElement }>,
+  headings: { text: string; level: number; element: HTMLElement }[],
 ): OutlineEntry[] {
   return headings.map((heading, index) => ({
-    id: `html-${index}`,
+    id: `heading-${index}`,
     text: heading.text,
     level: heading.level,
     element: heading.element,

@@ -8,8 +8,7 @@ import { extractPdfParagraphs } from "../paragraphs";
 import { extractPdfStructure } from "../structure";
 import type { DocumentStructure, ReadingStructureExtractor, StructureExtractor } from "../structure";
 import type { ParagraphExtractor } from "../types";
-import * as api from "../api";
-import { extractPdfStructureWithLayout } from "../layout/pdfLayout";
+import { extractPdfStructureReflowed } from "../layout/pdfStructure";
 import { flattenPdfOutline } from "../outline";
 import type { OutlineEntry, OutlineExtractor, PdfOutlineNode } from "../outline";
 
@@ -79,29 +78,7 @@ export default function PdfReader({ url, zoom, extractorRef, structureRef, readi
       let readingPromise: Promise<DocumentStructure> | null = null;
       readingStructureRef.current = (onProgress, signal) => {
         if (!readingPromise) {
-          const promise = (async () => {
-            try {
-              const info = await api.layoutModelInfo();
-              if (!info.exists) {
-                return {
-                  ...(await extractPdfStructure(doc)),
-                  notice: `未找到版面模型，已使用简化抽取：${info.path}`,
-                };
-              }
-              return await extractPdfStructureWithLayout(doc, {
-                onProgress,
-                signal,
-              });
-            } catch (err) {
-              if (signal?.aborted) throw err;
-              console.warn("layout extraction failed", err);
-              const detail = err instanceof Error ? err.message : String(err);
-              return {
-                ...(await extractPdfStructure(doc)),
-                notice: `版面模型运行失败，已使用简化抽取（${detail}）`,
-              };
-            }
-          })();
+          const promise = extractPdfStructureReflowed(doc, { onProgress, signal });
           readingPromise = promise;
           promise.catch(() => {
             if (readingPromise === promise) readingPromise = null;

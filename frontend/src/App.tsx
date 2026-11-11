@@ -9,7 +9,12 @@ import "./panels";
 import type { PanelContext } from "./panels/registry";
 import * as api from "./api";
 import { CONTENT_KINDS } from "./structure";
-import type { DocumentStructure, ReadingStructureExtractor, StructuredBlock, StructureExtractor } from "./structure";
+import type {
+  DocumentStructure,
+  ReadingStructureExtractor,
+  StructuredBlock,
+  StructureExtractor,
+} from "./structure";
 import type { OutlineExtractor } from "./outline";
 import type {
   BlockTranslation,
@@ -75,7 +80,9 @@ export default function App() {
   const [mode, setMode] = useState<ViewMode>("original");
   const [structure, setStructure] = useState<DocumentStructure | null>(null);
   const [structureLoading, setStructureLoading] = useState(false);
-  const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(null);
+  const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const [blockTranslations, setBlockTranslations] = useState<Record<number, BlockTranslation>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [selection, setSelection] = useState<SelectionTranslation | null>(null);
@@ -163,6 +170,7 @@ export default function App() {
     setMode("original");
     setStructure(null);
     setExtractProgress(null);
+    setStructureLoading(false);
     setBlockTranslations({});
     setSelectionText(null);
     setContentLoading(true);

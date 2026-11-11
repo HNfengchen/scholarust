@@ -9,7 +9,9 @@ export type BlockKind =
   | "note"
   | "references"
   | "caption"
-  | "meta";
+  | "meta"
+  | "figure"
+  | "reference";
 
 export interface StructuredBlock {
   id: number;
@@ -17,16 +19,30 @@ export interface StructuredBlock {
   text: string;
   page: number | null;
   level: number;
+  image?: string;
+  caption?: string;
 }
 
 export interface DocumentStructure {
   blocks: StructuredBlock[];
   removedLines: number;
+  notice?: string;
 }
 
 export type StructureExtractor = () => Promise<DocumentStructure>;
 
-export const CONTENT_KINDS: BlockKind[] = ["title", "heading", "abstract", "paragraph", "note"];
+export type ReadingStructureExtractor = (
+  onProgress?: (done: number, total: number) => void,
+) => Promise<DocumentStructure>;
+
+export const CONTENT_KINDS: BlockKind[] = [
+  "title",
+  "heading",
+  "abstract",
+  "paragraph",
+  "note",
+  "reference",
+];
 
 export const BLOCK_KIND_LABELS: Record<BlockKind, string> = {
   title: "标题",
@@ -37,9 +53,11 @@ export const BLOCK_KIND_LABELS: Record<BlockKind, string> = {
   references: "参考文献",
   caption: "图表",
   meta: "作者信息",
+  figure: "图片",
+  reference: "参考文献",
 };
 
-type Section = "front" | "abstract" | "body" | "references" | "notes";
+export type Section = "front" | "abstract" | "body" | "references" | "notes";
 
 const NUMBERING_RE = /^\d+(?:\.\d+)*[.、]?\s+/;
 const SECTION_RE =
@@ -65,7 +83,7 @@ function isSectionNumbered(text: string): boolean {
   return false;
 }
 
-function sectionForHeading(text: string): Section | null {
+export function sectionForHeading(text: string): Section | null {
   const t = stripNumbering(text).toLowerCase();
   if (/^abstract\b|^摘要/.test(t)) return "abstract";
   if (/^(references|bibliography|literature\s+cited)\b|^参考文献|^引用文献/.test(t)) return "references";

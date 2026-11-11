@@ -140,6 +140,40 @@ describe("splitReferenceEntries", () => {
     expect(entries[0].label).toBeNull();
   });
 
+  it("keeps the label of the last numbered entry when a note follows on the left", () => {
+    const lines = [
+      line(0, "[1] A", 24, 10),
+      line(12, "[2] B", 24, 10),
+      line(24, "Note: correspondence", 0, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    expect(entries.map((e) => e.label)).toEqual(["[1]", "[2]"]);
+    expect(entries.map((e) => e.number)).toEqual([1, 2]);
+  });
+
+  it("keeps both labels when a stray line sits between two numbered entries", () => {
+    const lines = [
+      line(0, "[1] A", 24, 10),
+      line(12, "Table 1: note", 0, 10),
+      line(24, "[2] B", 24, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    expect(entries.map((e) => e.label)).toEqual(["[1]", "[2]"]);
+    expect(entries.map((e) => e.number)).toEqual([1, 2]);
+  });
+
+  it("keeps the label of a single numbered entry that follows a stray line", () => {
+    const lines = [
+      line(0, "Table 1: results", 0, 10),
+      line(12, "[1] Smith et al. Paper", 24, 10),
+      line(24, "continued", 40, 10),
+    ];
+    const entries = splitReferenceEntries(lines, 10);
+    const numbered = entries.filter((e) => e.number !== null);
+    expect(numbered.map((e) => e.label)).toEqual(["[1]"]);
+    expect(numbered[0].number).toBe(1);
+  });
+
   it("infers the body margin from the labelled lines", () => {
     const lines = [
       line(0, "Table 1: results", 0, 10),

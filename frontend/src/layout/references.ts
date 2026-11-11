@@ -5,7 +5,7 @@ export interface ReferenceEntry {
   label: string | null;
   /** The integer parsed from `label`, or null when the entry carries no number. */
   number: number | null;
-  /** Entry text with the leading marker stripped; continuation lines joined by a space. */
+  /** Entry text with the leading marker stripped (render `label` next to it); continuation lines joined by a space. */
   text: string;
 }
 
@@ -15,8 +15,8 @@ const LABEL = /^\s*(\[\d+\]|\d+[.)]|\(\d+\))/;
 /**
  * Locate the reference section of a page.
  *
- * `start` is the index of the heading line itself; `end` is exclusive and points at the
- * first following line that reads as a heading again (or the end of the page).
+ * `start` is the index of the heading line itself; `end` is the first following line whose
+ * `size >= bodySize * 1.25`, else `lines.length`, and is exclusive.
  * Callers take the entry lines as `lines.slice(start + 1, end)`.
  */
 export function findReferenceSection(lines: TextLine[], bodySize: number): { start: number; end: number } | null {
@@ -39,11 +39,23 @@ export function findReferenceSection(lines: TextLine[], bodySize: number): { sta
   return { start, end };
 }
 
-/** Split the lines of a reference section into entries. */
+/**
+ * Split the lines of a reference section into entries.
+ *
+ * A line starts a new entry when it carries a label (`[1]`, `1.`, `(3)`) and sits at the body
+ * margin, or when it is not indented and the previous line was hanging-indented. A label on an
+ * indented line is a continuation, so a wrapped line starting with `2020.` stays inside its entry.
+ *
+ * Limit: unnumbered entries that are not hanging-indented cannot be told apart and collapse
+ * into a single entry.
+ *
+ * The number marker is stripped from `text`; callers must render `label` next to `text`.
+ */
 export function splitReferenceEntries(lines: TextLine[], bodySize: number): ReferenceEntry[] {
   const entries: ReferenceEntry[] = [];
   if (lines.length === 0) return entries;
-  const bodyLeft = Math.min(...lines.map((line) => line.x));
+  const labelled = lines.filter((line) => LABEL.test(line.text));
+  const bodyLeft = Math.min(...(labelled.length > 0 ? labelled : lines).map((line) => line.x));
   const indent = bodyLeft + 0.5 * bodySize;
   let prevIndented = false;
 
@@ -51,7 +63,8 @@ export function splitReferenceEntries(lines: TextLine[], bodySize: number): Refe
     if (!line.text.trim()) continue;
     const match = LABEL.exec(line.text);
     const indented = line.x > indent;
-    const startsEntry = match !== null || entries.length === 0 || (!indented && prevIndented);
+    const startsEntry =
+      (match !== null && !indented) || entries.length === 0 || (!indented && prevIndented);
 
     if (startsEntry) {
       const label = match ? match[0].trim() : null;

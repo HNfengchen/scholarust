@@ -1,7 +1,8 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { getPanels } from "../panels/registry";
 import type { PanelContext } from "../panels/registry";
+import { pluginPanelDescriptors } from "../panels/pluginPanels";
 
 export const MIN_PANEL_WIDTH = 240;
 
@@ -24,7 +25,10 @@ export default function RightPane({
   getMaxPanelWidth,
   onPanelWidthChange,
 }: Props) {
-  const panels = getPanels();
+  const panels = useMemo(
+    () => [...getPanels(), ...pluginPanelDescriptors(context.plugins)],
+    [context.plugins],
+  );
   const active = panels.find((panel) => panel.id === activePanelId) ?? null;
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 

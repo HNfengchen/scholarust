@@ -5,7 +5,7 @@ mod state;
 
 use model::{LocalLlmService, ModelManager};
 use scholarust_core::Library;
-use scholarust_plugin_host::PluginHost;
+use scholarust_plugin_host::{empty_doc_context, PluginHost};
 use scholarust_translate::services::{google::GoogleService, mymemory::MyMemoryService, openai::OpenAIService};
 use scholarust_translate::ServiceRegistry;
 use state::{AppState, Settings};
@@ -40,7 +40,11 @@ pub fn run() {
             registry.register(Arc::new(OpenAIService::new(openai_config.clone())));
             registry.register(Arc::new(LocalLlmService::new(model_manager.clone())));
 
-            let plugin_host = PluginHost::load_dir(&data_dir.join("plugins"));
+            let plugin_docs = empty_doc_context();
+            let plugin_host =
+                PluginHost::load_dir_with_context(&data_dir.join("plugins"), plugin_docs.clone());
+            let parsers = plugin_host.parsers.clone();
+            let plugin_panels = plugin_host.panels.clone();
             for service in plugin_host.services {
                 registry.register(service);
             }
@@ -51,6 +55,9 @@ pub fn run() {
                 settings: RwLock::new(settings),
                 openai_config,
                 plugins: Mutex::new(plugin_host.plugins),
+                parsers: Mutex::new(parsers),
+                plugin_panels: Mutex::new(plugin_panels),
+                plugin_docs,
                 data_dir,
                 model: model_manager,
             });
@@ -71,6 +78,10 @@ pub fn run() {
             commands::set_plugin_enabled,
             commands::remove_plugin,
             commands::plugin_readme,
+            commands::set_plugin_document,
+            commands::parse_document,
+            commands::inspect_plugin,
+            commands::plugin_panel_content,
             commands::get_library,
             commands::create_collection,
             commands::rename_collection,

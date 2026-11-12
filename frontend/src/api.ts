@@ -1,5 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type {
+  PluginDocSnapshot,
   Collection,
   DocumentContent,
   DocumentInfo,
@@ -8,6 +9,8 @@ import type {
   ModelStatus,
   Note,
   PluginInfo,
+  PluginPanelSection,
+  PluginPreview,
   ServiceInfo,
   Settings,
   TranslationResult,
@@ -142,6 +145,18 @@ export function importPlugin(path: string): Promise<PluginInfo> {
   return invoke<PluginInfo>("import_plugin", { path });
 }
 
+/** Reads a package's manifest, digest and conflicts without installing it. */
+export function inspectPlugin(path: string): Promise<PluginPreview> {
+  return invoke<PluginPreview>("inspect_plugin", { path });
+}
+
+export function pluginPanelContent(
+  name: string,
+  panelId: string,
+): Promise<PluginPanelSection[]> {
+  return invoke<PluginPanelSection[]>("plugin_panel_content", { name, panelId });
+}
+
 export function setPluginEnabled(name: string, enabled: boolean): Promise<PluginInfo[]> {
   return invoke<PluginInfo[]>("set_plugin_enabled", { name, enabled });
 }
@@ -152,4 +167,28 @@ export function removePlugin(name: string): Promise<PluginInfo[]> {
 
 export function pluginReadme(name: string): Promise<string> {
   return invoke<string>("plugin_readme", { name });
+}
+
+/** Publish the active document to plugins that declared docRead. */
+export function setPluginDocument(document: PluginDocSnapshot | null): Promise<void> {
+  return invoke<void>("set_plugin_document", { document });
+}
+
+export interface ParsedBlockPayload {
+  id: number;
+  kind: string;
+  text: string;
+  level: number;
+  image?: string;
+}
+
+export interface ParsedDocumentPayload {
+  title: string | null;
+  notice: string | null;
+  blocks: ParsedBlockPayload[];
+}
+
+/** Parse a custom format through the enabled parser plugin that claimed it. */
+export function parseDocument(id: string): Promise<ParsedDocumentPayload> {
+  return invoke<ParsedDocumentPayload>("parse_document", { id });
 }

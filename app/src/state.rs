@@ -1,5 +1,5 @@
 use scholarust_core::Library;
-use scholarust_plugin_host::PluginInfo;
+use scholarust_plugin_host::{DocContext, LoadedPanel, LoadedParser, PluginInfo};
 use scholarust_translate::{OpenAIConfig, ServiceRegistry};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -62,6 +62,12 @@ pub struct AppState {
     pub settings: RwLock<Settings>,
     pub openai_config: Arc<RwLock<OpenAIConfig>>,
     pub plugins: Mutex<Vec<PluginInfo>>,
+    /// Enabled parser plugins, matched by the extension they claim.
+    pub parsers: Mutex<Vec<LoadedParser>>,
+    /// Enabled plugins that serve dynamic panels.
+    pub plugin_panels: Mutex<Vec<LoadedPanel>>,
+    /// Read-only document snapshot exposed to plugins that declare `docRead`.
+    pub plugin_docs: DocContext,
     pub data_dir: PathBuf,
     pub model: Arc<crate::model::ModelManager>,
 }

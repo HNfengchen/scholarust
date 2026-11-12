@@ -1636,6 +1636,125 @@ mark.search-hit {
   word-break: break-all;
 }
 
+.extension-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.plugin-kind,
+.plugin-permission {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.plugin-kind {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.plugin-panel-body {
+  padding-top: 8px;
+}
+
+.reader-status.reader-error-text {
+  color: var(--danger);
+}
+
+.plugin-panel-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.plugin-conflict {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+
+.plugin-preview-warning {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.plugin-contributions {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.plugin-panel-body .plugin-contributions {
+  margin-bottom: 0;
+}
+
+.plugin-contribution {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.plugin-contribution h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.plugin-contribution p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.plugin-contribution ul {
+  margin: 0;
+  padding-left: 1.4em;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.plugin-contribution-kv {
+  margin: 0;
+  font-size: 13px;
+}
+
+.plugin-contribution-kv > div {
+  display: flex;
+  gap: 12px;
+  padding: 3px 0;
+  border-top: 1px dashed var(--border);
+}
+
+.plugin-contribution-kv > div:first-child {
+  border-top: none;
+}
+
+.plugin-contribution-kv dt {
+  flex: 0 0 30%;
+  color: var(--muted);
+}
+
+.plugin-contribution-kv dd {
+  margin: 0;
+  flex: 1;
+  word-break: break-word;
+}
+
 .extension-actions {
   display: flex;
   align-items: center;

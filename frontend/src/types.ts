@@ -1,4 +1,6 @@
-export type DocumentKind = "pdf" | "epub" | "docx" | "markdown" | "text";
+export type BuiltinDocumentKind = "pdf" | "epub" | "docx" | "markdown" | "text";
+/** `plugin:<extension>` is a format handled by an installed parser plugin. */
+export type DocumentKind = BuiltinDocumentKind | `plugin:${string}`;
 
 export interface DocumentInfo {
   id: string;
@@ -43,11 +45,82 @@ export interface Settings {
   openaiKey: string;
 }
 
+export type PluginKind = "translate" | "panel" | "parser" | "other";
+
+export interface PluginPermissions {
+  docRead: boolean;
+  storage: boolean;
+  http: string[];
+}
+
+export interface PluginPanelKeyValue {
+  key: string;
+  value: string;
+}
+
+export type PluginPanelSection =
+  | { type: "paragraph"; text: string }
+  | { type: "list"; items: string[] }
+  | { type: "keyValue"; items: PluginPanelKeyValue[] };
+
+export type PluginPanelIcon = "info" | "list" | "table" | "book" | "notes" | "sparkle";
+
+export interface PluginPanel {
+  id: string;
+  title: string;
+  description?: string;
+  icon?: PluginPanelIcon | string;
+  /** Live content is requested from the plugin's `panel` export. */
+  dynamic?: boolean;
+  sections: PluginPanelSection[];
+}
+
+export interface PluginParserClaim {
+  id: string;
+  label?: string;
+  extensions: string[];
+  /** Hex signatures matched at offset 0 for extensionless files. */
+  magic?: string[];
+}
+
 export interface PluginInfo {
   name: string;
   version: string;
   description: string;
   enabled: boolean;
+  apiVersion: number;
+  kind: PluginKind;
+  permissions: PluginPermissions;
+  contributes: { panels: PluginPanel[]; parsers: PluginParserClaim[] };
+  /** Set when the runtime skipped a capability due to an extension conflict. */
+  conflict?: string;
+}
+
+export interface PluginExtensionConflict {
+  extension: string;
+  plugin: string;
+}
+
+export type PluginVersionChange = "new" | "upgrade" | "downgrade" | "same" | "different";
+
+/** What installing a package would change, shown before consent. */
+export interface PluginPreview {
+  info: PluginInfo;
+  digest: string;
+  installed: PluginInfo | null;
+  versionChange: PluginVersionChange;
+  conflicts: PluginExtensionConflict[];
+}
+
+export interface PluginDocBlock {
+  id: number;
+  kind: string;
+  text: string;
+}
+
+export interface PluginDocSnapshot {
+  title: string;
+  blocks: PluginDocBlock[];
 }
 
 export interface TranslationResult {
@@ -103,7 +176,7 @@ export const TARGET_LANGUAGES: { value: string; label: string }[] = [
   { value: "es", label: "Español" },
 ];
 
-export const KIND_LABELS: Record<DocumentKind, string> = {
+export const KIND_LABELS: Record<BuiltinDocumentKind, string> = {
   pdf: "PDF",
   epub: "EPUB",
   docx: "DOCX",
@@ -111,7 +184,20 @@ export const KIND_LABELS: Record<DocumentKind, string> = {
   text: "TXT",
 };
 
-export const KIND_FILTERS: { kind: DocumentKind; label: string }[] = [
+export function pluginExtension(kind: DocumentKind): string | null {
+  return kind.startsWith("plugin:") ? kind.slice("plugin:".length) : null;
+}
+
+export function kindLabel(kind: DocumentKind): string {
+  const extension = pluginExtension(kind);
+  return extension ? extension.toUpperCase() : KIND_LABELS[kind as BuiltinDocumentKind];
+}
+
+export function kindClass(kind: DocumentKind): string {
+  return pluginExtension(kind) ? "kind-badge kind-plugin" : `kind-badge kind-${kind}`;
+}
+
+export const KIND_FILTERS: { kind: BuiltinDocumentKind; label: string }[] = [
   { kind: "pdf", label: "PDF" },
   { kind: "epub", label: "EPUB" },
   { kind: "docx", label: "Word" },

@@ -42,6 +42,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./api", () => ({
   getLibrary: vi.fn(), listServices: vi.fn(), getSettings: vi.fn(), listPlugins: vi.fn(),
   getContent: vi.fn(), translateText: vi.fn(), removeDocument: vi.fn(),
+  setPluginDocument: vi.fn(async () => {}),
 }));
 
 const doc = (id: string): DocumentInfo => ({

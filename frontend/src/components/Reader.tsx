@@ -6,6 +6,7 @@ import type { OutlineExtractor } from "../outline";
 import PdfReader from "../readers/PdfReader";
 import EpubReader from "../readers/EpubReader";
 import HtmlReader from "../readers/HtmlReader";
+import ParsedReader from "../readers/ParsedReader";
 
 interface Props {
   content: DocumentContent;
@@ -31,6 +32,19 @@ export default function Reader({
   onSelection,
 }: Props) {
   const url = convertFileSrc(content.path);
+  if (content.kind.startsWith("plugin:")) {
+    return (
+      <ParsedReader
+        docId={docId}
+        zoom={zoom}
+        extractorRef={extractorRef}
+        structureRef={structureRef}
+        readingStructureRef={readingStructureRef}
+        outlineRef={outlineRef}
+        onError={onError}
+      />
+    );
+  }
   switch (content.kind) {
     case "pdf":
       return (

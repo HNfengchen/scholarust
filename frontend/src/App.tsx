@@ -155,6 +155,24 @@ export default function App() {
     };
   }, []);
 
+  const docReadEnabled = plugins.some(
+    (plugin) => plugin.enabled && plugin.permissions.docRead,
+  );
+  useEffect(() => {
+    if (!docReadEnabled || !activeDoc || !structure) {
+      void api.setPluginDocument(null).catch(() => {});
+      return;
+    }
+    void api
+      .setPluginDocument({
+        title: activeDoc.title,
+        blocks: structure.blocks
+          .filter((block) => block.text.trim())
+          .map(({ id, kind, text }) => ({ id, kind, text })),
+      })
+      .catch(() => {});
+  }, [activeDoc, structure, docReadEnabled]);
+
   useEffect(() => {
     activeDocIdRef.current = activeDoc?.id ?? null;
     batchSeq.current++;
@@ -198,6 +216,30 @@ export default function App() {
     [markRecent],
   );
 
+  const parserExtensions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          plugins
+            .filter((plugin) => plugin.enabled)
+            .flatMap((plugin) =>
+              plugin.contributes.parsers.flatMap((parser) => parser.extensions),
+            ),
+        ),
+      ),
+    [plugins],
+  );
+
+  const magicSniffing = useMemo(
+    () =>
+      plugins.some(
+        (plugin) =>
+          plugin.enabled &&
+          plugin.contributes.parsers.some((parser) => (parser.magic?.length ?? 0) > 0),
+      ),
+    [plugins],
+  );
+
   const handleOpenFiles = useCallback(async () => {
     setOpening(true);
     try {
@@ -206,8 +248,9 @@ export default function App() {
         filters: [
           {
             name: "文档",
-            extensions: ["pdf", "epub", "docx", "md", "markdown", "txt"],
+            extensions: ["pdf", "epub", "docx", "md", "markdown", "txt", ...parserExtensions],
           },
+          ...(magicSniffing ? [{ name: "所有文件", extensions: ["*"] }] : []),
         ],
       });
       if (!picked) return;
@@ -231,7 +274,7 @@ export default function App() {
     } finally {
       setOpening(false);
     }
-  }, [markRecent, showError]);
+  }, [magicSniffing, markRecent, parserExtensions, showError]);
 
   const handleRemove = useCallback(
     async (doc: DocumentInfo) => {

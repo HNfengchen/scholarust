@@ -1,13 +1,77 @@
 use crate::state::{AppState, Settings};
-use scholarust_core::{markdown, DocumentInfo};
-use scholarust_plugin_host::{PluginHost, PluginInfo};
+use scholarust_core::{markdown, DocumentInfo, DocumentKind};
+use scholarust_plugin_host::{
+    claims_magic, DocSnapshot, LoadedParser, PanelSection, ParsedDocument, ParserContribution,
+    PluginHost, PluginInfo, PluginPreview, MAX_DOC_BLOCKS, MAX_DOC_TEXT_BYTES,
+};
 use scholarust_translate::{ServiceInfo, TranslateResult};
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
+}
+
+fn read_head(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
+    let mut file = std::fs::File::open(path)?;
+    let mut buffer = vec![0u8; max];
+    let mut read = 0usize;
+    while read < max {
+        let count = file.read(&mut buffer[read..])?;
+        if count == 0 {
+            break;
+        }
+        read += count;
+    }
+    buffer.truncate(read);
+    Ok(buffer)
+}
+
+/// Finds an enabled parser whose magic signature matches the file header.
+async fn magic_parser(state: &AppState, path: &Path) -> Option<(LoadedParser, String)> {
+    let head = read_head(path, 64).ok()?;
+    if head.is_empty() {
+        return None;
+    }
+    let parsers = state.parsers.lock().await;
+    parsers
+        .iter()
+        .find(|parser| claims_magic(&parser.claims, &head))
+        .map(|parser| {
+            let extension = parser
+                .claims
+                .iter()
+                .flat_map(|claim| claim.extensions.iter())
+                .next()
+                .cloned()
+                .unwrap_or_default();
+            (parser.clone(), extension)
+        })
+}
+
+async fn extension_conflicts_for(
+    state: &AppState,
+    name: &str,
+    candidate: &[ParserContribution],
+) -> Vec<String> {
+    let parsers = state.parsers.lock().await;
+    let mut conflicts: Vec<String> = Vec::new();
+    for claim in candidate {
+        for extension in &claim.extensions {
+            if let Some(other) = parsers
+                .iter()
+                .find(|parser| parser.info.name != name && parser.claims_extension(extension))
+            {
+                let message = format!(".{extension} 已被插件「{}」使用", other.info.name);
+                if !conflicts.contains(&message) {
+                    conflicts.push(message);
+                }
+            }
+        }
+    }
+    conflicts
 }
 
 #[tauri::command]
@@ -21,7 +85,35 @@ pub async fn open_document(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<DocumentInfo, String> {
-    let doc = DocumentInfo::from_path(Path::new(&path)).map_err(err)?;
+    let source = Path::new(&path);
+    let doc = match DocumentInfo::from_path(source) {
+        Ok(doc) => doc,
+        Err(builtin_error) => {
+            let extension = source
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            let supported = if extension.is_empty() {
+                false
+            } else {
+                state
+                    .parsers
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|parser| parser.claims_extension(&extension))
+            };
+            let kind = if supported {
+                DocumentKind::Custom(extension)
+            } else if let Some((_, parser_extension)) = magic_parser(state.inner(), source).await {
+                DocumentKind::Custom(parser_extension)
+            } else {
+                return Err(builtin_error.to_string());
+            };
+            DocumentInfo::from_path_with_kind(source, kind).map_err(err)?
+        }
+    };
     app.asset_protocol_scope()
         .allow_file(&doc.path)
         .map_err(err)?;
@@ -69,7 +161,7 @@ pub async fn get_content(
         _ => (None, None),
     };
     Ok(ContentPayload {
-        kind: doc.kind,
+        kind: doc.kind.clone(),
         html,
         raw,
         path: doc.path.clone(),
@@ -140,21 +232,62 @@ pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginInfo>,
 }
 
 #[tauri::command]
+pub fn inspect_plugin(state: State<'_, AppState>, path: String) -> Result<PluginPreview, String> {
+    PluginHost::inspect_zip(Path::new(&path), &state.data_dir.join("plugins")).map_err(err)
+}
+
+#[tauri::command]
 pub async fn import_plugin(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<PluginInfo, String> {
     let plugins_dir = state.data_dir.join("plugins");
     let info = PluginHost::install_zip(Path::new(&path), &plugins_dir).map_err(err)?;
+    // Drop whatever the previous version registered so an upgrade swaps
+    // cleanly, including packages that arrive disabled.
+    let service_id = format!("plugin:{}", info.name);
+    state.registry.write().await.unregister(&service_id);
+    state.parsers.lock().await.retain(|parser| parser.info.name != info.name);
+    state.plugin_panels.lock().await.retain(|panel| panel.info.name != info.name);
     if info.enabled {
-        let (_, service) =
-            PluginHost::load_service(&plugins_dir.join(&info.name)).map_err(err)?;
-        state.registry.write().await.register(service);
+        let loaded = PluginHost::load_plugin(
+            &plugins_dir.join(&info.name),
+            state.plugin_docs.clone(),
+        )
+        .map_err(err)?;
+        if let Some(service) = loaded.service {
+            state.registry.write().await.register(service);
+        }
+        if let Some(parser) = loaded.parser {
+            state.parsers.lock().await.push(parser);
+        }
+        if let Some(panel) = loaded.panel {
+            state.plugin_panels.lock().await.push(panel);
+        }
+    } else {
+        release_plugin_service(&state, &service_id).await?;
     }
     let mut plugins = state.plugins.lock().await;
     plugins.retain(|p| p.name != info.name);
     plugins.push(info.clone());
     Ok(info)
+}
+
+#[tauri::command]
+pub async fn plugin_panel_content(
+    state: State<'_, AppState>,
+    name: String,
+    panel_id: String,
+) -> Result<Vec<PanelSection>, String> {
+    let panel = {
+        let panels = state.plugin_panels.lock().await;
+        panels
+            .iter()
+            .find(|panel| panel.info.name == name)
+            .cloned()
+    }
+    .ok_or_else(|| format!("插件「{name}」未启用或没有动态面板"))?;
+    panel.sections(&panel_id).await.map_err(err)
 }
 
 #[tauri::command]
@@ -164,13 +297,41 @@ pub async fn set_plugin_enabled(
     enabled: bool,
 ) -> Result<Vec<PluginInfo>, String> {
     let plugins_dir = state.data_dir.join("plugins");
-    PluginHost::set_enabled(&plugins_dir, &name, enabled).map_err(err)?;
     let service_id = format!("plugin:{name}");
     if enabled {
-        let (_, service) = PluginHost::load_service(&plugins_dir.join(&name)).map_err(err)?;
-        state.registry.write().await.register(service);
+        // Instantiate and check conflicts before persisting `enabled`, so a
+        // failed enable leaves both the manifest and the runtime untouched.
+        let loaded = PluginHost::load_plugin(&plugins_dir.join(&name), state.plugin_docs.clone())
+            .map_err(err)?;
+        if let Some(parser) = &loaded.parser {
+            let conflicts =
+                extension_conflicts_for(state.inner(), &name, &parser.claims).await;
+            if !conflicts.is_empty() {
+                return Err(format!(
+                    "无法启用：{}。请先停用或卸载冲突插件。",
+                    conflicts.join("，")
+                ));
+            }
+        }
+        PluginHost::set_enabled(&plugins_dir, &name, true).map_err(err)?;
+        if let Some(service) = loaded.service {
+            state.registry.write().await.register(service);
+        }
+        if let Some(parser) = loaded.parser {
+            let mut parsers = state.parsers.lock().await;
+            parsers.retain(|existing| existing.info.name != parser.info.name);
+            parsers.push(parser);
+        }
+        if let Some(panel) = loaded.panel {
+            let mut panels = state.plugin_panels.lock().await;
+            panels.retain(|existing| existing.info.name != panel.info.name);
+            panels.push(panel);
+        }
     } else {
+        PluginHost::set_enabled(&plugins_dir, &name, false).map_err(err)?;
         state.registry.write().await.unregister(&service_id);
+        state.parsers.lock().await.retain(|parser| parser.info.name != name);
+        state.plugin_panels.lock().await.retain(|panel| panel.info.name != name);
     }
     let snapshot = {
         let mut plugins = state.plugins.lock().await;
@@ -194,6 +355,8 @@ pub async fn remove_plugin(
     state.registry.write().await.unregister(&service_id);
     let plugins_dir = state.data_dir.join("plugins");
     PluginHost::uninstall(&plugins_dir, &name).map_err(err)?;
+    state.parsers.lock().await.retain(|parser| parser.info.name != name);
+    state.plugin_panels.lock().await.retain(|panel| panel.info.name != name);
     let snapshot = {
         let mut plugins = state.plugins.lock().await;
         plugins.retain(|p| p.name != name);
@@ -225,6 +388,66 @@ async fn release_plugin_service(
 pub async fn plugin_readme(state: State<'_, AppState>, name: String) -> Result<String, String> {
     let plugins_dir = state.data_dir.join("plugins");
     PluginHost::read_readme(&plugins_dir, &name).map_err(err)
+}
+
+/// Parse a custom document through the enabled parser plugin that claimed its
+/// extension. Only the file being opened is read; plugins never see a path.
+#[tauri::command]
+pub async fn parse_document(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ParsedDocument, String> {
+    let (path, extension) = {
+        let library = state.library.lock().await;
+        let doc = library
+            .get(&id)
+            .ok_or_else(|| format!("document not found: {id}"))?;
+        let extension = doc
+            .kind
+            .extension()
+            .ok_or_else(|| "该文档不是插件解析格式".to_string())?
+            .to_string();
+        (doc.path.clone(), extension)
+    };
+    let by_extension = {
+        let parsers = state.parsers.lock().await;
+        parsers
+            .iter()
+            .find(|parser| parser.claims_extension(&extension))
+            .cloned()
+    };
+    let (parser, extension) = match by_extension {
+        Some(parser) => (parser, extension),
+        None => magic_parser(state.inner(), Path::new(&path))
+            .await
+            .ok_or_else(|| {
+                format!("未找到可解析 .{extension} 的插件，请安装并启用对应解析插件")
+            })?,
+    };
+    parser.parse(Path::new(&path), &extension).await.map_err(err)
+}
+
+/// Publish the active document to plugins that declared `docRead`.
+/// `None` clears it when no document is open.
+#[tauri::command]
+pub async fn set_plugin_document(
+    state: State<'_, AppState>,
+    document: Option<DocSnapshot>,
+) -> Result<(), String> {
+    if let Some(doc) = &document {
+        if doc.blocks.len() > MAX_DOC_BLOCKS {
+            return Err(format!("document has too many blocks (max {MAX_DOC_BLOCKS})"));
+        }
+        let bytes: usize = doc.blocks.iter().map(|block| block.text.len()).sum();
+        if bytes > MAX_DOC_TEXT_BYTES {
+            return Err("document text is too large for plugin access".into());
+        }
+    }
+    *state
+        .plugin_docs
+        .write()
+        .map_err(|_| "plugin document context is unavailable".to_string())? = document;
+    Ok(())
 }
 
 #[derive(Serialize)]

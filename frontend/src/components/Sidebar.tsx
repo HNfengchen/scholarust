@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { Collection, DocumentInfo, DocumentKind } from "../types";
-import { KIND_FILTERS, KIND_LABELS } from "../types";
+import { KIND_FILTERS, kindClass, kindLabel } from "../types";
 
 interface Props {
   documents: DocumentInfo[];
@@ -315,7 +315,7 @@ export default function Sidebar({
             onClick={() => onSelect(doc)}
             title={doc.path}
           >
-            <span className={`kind-badge kind-${doc.kind}`}>{KIND_LABELS[doc.kind]}</span>
+            <span className={kindClass(doc.kind)}>{kindLabel(doc.kind)}</span>
             <span className="doc-title">{doc.title}</span>
             <span className="doc-tags">
               {(doc.tags ?? []).slice(0, 3).map((tag) => (

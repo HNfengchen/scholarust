@@ -56,14 +56,36 @@ export function collectBlocks(host: HTMLElement | null): BlockItem[] {
   return items;
 }
 
+// Jumps must not animate. The reading article only estimates off-screen
+// blocks (content-visibility: auto), so an animated scroll re-lays out the
+// blocks it sweeps past; the target then moves while the animation still
+// heads for its old offset, landing short and needing repeated clicks.
+function alignToStart(element: HTMLElement): void {
+  element.scrollIntoView({ block: "start" });
+}
+
 export function scrollToPage(host: HTMLElement | null, page: number): void {
   if (!host) return;
   const target = host.querySelector<HTMLElement>(`.pdf-page[data-page-number="${page}"]`);
-  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (target) alignToStart(target);
 }
 
 export function scrollToElement(element: HTMLElement): void {
-  element.scrollIntoView({ behavior: "smooth", block: "start" });
+  alignToStart(element);
+}
+
+/** Scroll the reading view to a block by its `data-block-id` and flash it. */
+export function scrollToBlock(host: HTMLElement | null, blockId: number): void {
+  if (!host) return;
+  const target = host.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
+  if (!target) return;
+  // The reading toolbar sticks over the top of the scrollport; reserve its
+  // height so the target lands below it rather than hidden behind it.
+  const toolbar = host.querySelector<HTMLElement>(".reading-toolbar");
+  target.style.scrollMarginTop = `${toolbar?.offsetHeight ?? 0}px`;
+  alignToStart(target);
+  target.style.scrollMarginTop = "";
+  flashElement(target);
 }
 
 export function clearHighlights(host: HTMLElement | null): void {

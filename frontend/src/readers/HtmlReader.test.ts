@@ -75,4 +75,33 @@ describe("HTML reader source safety", () => {
     controller.abort();
     await expect(props.readingStructureRef.current!(undefined, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
   });
+
+  it("detects heading anchors in CRLF Markdown so original-mode clicks can scroll", async () => {
+    props.raw = "# 标题一\r\n正文第一行\r\n## 标题二\r\n正文第二行\r\n";
+    await render();
+    expect(host.querySelector("pre.raw-markdown")?.textContent).toBe(props.raw);
+    const entries = await props.outlineRef.current!();
+    expect(entries.map((e) => e.text)).toEqual(["标题一", "标题二"]);
+    expect(entries.map((e) => e.level)).toEqual([1, 2]);
+    expect(entries[0].element?.tagName).toBe("SPAN");
+    expect(entries[0].element?.textContent).toContain("标题一");
+    expect(entries[1].element?.isConnected).toBe(true);
+  });
+
+  it("passes Chinese heading style rules to mammoth for DOCX conversion", async () => {
+    props = { ...props, kind: "docx", docxUrl: "https://example.test/document.docx", raw: null, html: null };
+    vi.mocked(mammoth.convertToHtml).mockResolvedValue({ value: "<h1>中文标题一</h1><p>正文</p>", messages: [] });
+    await render();
+    const options = vi.mocked(mammoth.convertToHtml).mock.calls[0][1];
+    expect(options?.styleMap).toEqual(
+      expect.arrayContaining([
+        "p[style-name='标题 1'] => h1:fresh",
+        "p[style-name='标题 2'] => h2:fresh",
+        "p[style-name='标题 6'] => h6:fresh",
+        "p[style-name='标题1'] => h1:fresh",
+        "p[style-name='标题6'] => h6:fresh",
+      ]),
+    );
+    expect(host.querySelector(".html-reader h1")?.textContent).toBe("中文标题一");
+  });
 });

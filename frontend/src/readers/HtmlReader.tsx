@@ -27,6 +27,18 @@ interface Props {
 
 const MD_HEADING = /^(#{1,6})\s+(.*)$/;
 
+// mammoth's default style map only knows English heading styles, so paragraphs
+// styled with the Chinese WPS/Word names ("标题 1"…) fall back to <p> and the
+// outline finds nothing. These rules are merged with the defaults, which keep
+// covering English "Heading 1"… styles.
+const DOCX_HEADING_STYLE_MAP = Array.from({ length: 6 }, (_, index) => {
+  const level = index + 1;
+  return [
+    `p[style-name='标题 ${level}'] => h${level}:fresh`,
+    `p[style-name='标题${level}'] => h${level}:fresh`,
+  ];
+}).flat();
+
 /** Show the Markdown source verbatim, line by line, keeping heading lines referenceable for the outline. */
 function renderMarkdownSource(container: HTMLElement, raw: string): HeadingItem[] {
   const pre = document.createElement("pre");
@@ -38,7 +50,9 @@ function renderMarkdownSource(container: HTMLElement, raw: string): HeadingItem[
     span.className = "raw-line";
     span.textContent = line + (index < lines.length - 1 ? "\n" : "");
     pre.appendChild(span);
-    const match = MD_HEADING.exec(line);
+    // A CRLF file leaves a trailing \r that the heading regex's `$` cannot
+    // match; strip it for detection only, keeping the displayed source verbatim.
+    const match = MD_HEADING.exec(line.replace(/\r$/, ""));
     if (match) headings.push({ text: match[2].trim(), level: match[1].length, element: span });
   }
   container.appendChild(pre);
@@ -69,7 +83,7 @@ export default function HtmlReader({ kind, html, raw, docxUrl, docId, zoom, extr
         const response = await fetch(docxUrl, { signal: controller.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const arrayBuffer = await response.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer });
+        const result = await mammoth.convertToHtml({ arrayBuffer }, { styleMap: DOCX_HEADING_STYLE_MAP });
         if (cancelled) return;
         const source = new DOMParser().parseFromString(result.value, "text/html");
         const { fragment, notice } = await sanitizeContentHtml(source, { docId, signal: controller.signal });

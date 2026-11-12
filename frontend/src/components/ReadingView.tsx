@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, RefObject } from "react";
 import { CONTENT_KINDS } from "../structure";
 import type { DocumentStructure, StructuredBlock } from "../structure";
 import type { BlockTranslation } from "../types";
@@ -23,6 +23,7 @@ interface Props {
   onTranslateContent: () => Promise<void>;
   onCancel: () => void;
   onCancelBatch: () => void;
+  hostRef?: RefObject<HTMLDivElement>;
 }
 
 function readStoredFontSize(): number {
@@ -99,6 +100,7 @@ export default function ReadingView({
   onTranslateContent,
   onCancel,
   onCancelBatch,
+  hostRef,
 }: Props) {
   const [fontSize, setFontSize] = useState(readStoredFontSize);
   const [showTranslation, setShowTranslation] = useState(readStoredShowTranslation);
@@ -137,7 +139,7 @@ export default function ReadingView({
   };
 
   return (
-    <div className="reading">
+    <div className="reading" ref={hostRef}>
       <div className="reading-toolbar">
         <div className="reading-toolbar-title">{title}</div>
         <div className="reading-toolbar-actions">

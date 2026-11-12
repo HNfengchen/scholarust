@@ -6,6 +6,7 @@ import Reader from "./components/Reader";
 import RightPane, { MIN_PANEL_WIDTH } from "./components/RightPane";
 import ReadingView from "./components/ReadingView";
 import "./panels";
+import { scrollToBlock } from "./panels/readerDom";
 import type { PanelContext } from "./panels/registry";
 import * as api from "./api";
 import { CONTENT_KINDS } from "./structure";
@@ -99,12 +100,14 @@ export default function App() {
   const readingStructureRef = useRef<ReadingStructureExtractor | null>(null);
   const outlineRef = useRef<OutlineExtractor | null>(null);
   const readerHostRef = useRef<HTMLDivElement>(null);
+  const readingHostRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLElement>(null);
   const readingCache = useRef(new Map<string, ReadingCache>());
   const activeDocIdRef = useRef<string | null>(null);
   const batchSeq = useRef(0);
   const selectionSeq = useRef(0);
   const readingAbortRef = useRef<AbortController | null>(null);
+  const pendingBlockRef = useRef<number | null>(null);
 
   const showError = useCallback((message: string) => setError(message), []);
 
@@ -187,6 +190,7 @@ export default function App() {
     setContent(null);
     setMode("original");
     setStructure(null);
+    pendingBlockRef.current = null;
     setExtractProgress(null);
     setStructureLoading(false);
     setBlockTranslations({});
@@ -534,6 +538,30 @@ export default function App() {
     [startReading, cancelReading],
   );
 
+  const jumpToBlock = useCallback(
+    (blockId: number) => {
+      if (mode === "reading" && structure) {
+        scrollToBlock(readingHostRef.current, blockId);
+        return;
+      }
+      // From original mode: enter reading mode, then scroll once the structure
+      // renders (the pending-block effect below performs the scroll).
+      pendingBlockRef.current = blockId;
+      void startReading();
+    },
+    [mode, structure, startReading],
+  );
+
+  useEffect(() => {
+    if (mode !== "reading" || !structure) return;
+    const blockId = pendingBlockRef.current;
+    if (blockId == null) return;
+    pendingBlockRef.current = null;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => scrollToBlock(readingHostRef.current, blockId)),
+    );
+  }, [mode, structure]);
+
   const refreshPlugins = useCallback(async () => {
     try {
       const [plugs, svc, cfg] = await Promise.all([
@@ -591,10 +619,13 @@ export default function App() {
     () => ({
       document: activeDoc,
       content,
+      mode,
+      structure,
       extractorRef,
       structureRef,
       outlineRef,
       readerHostRef,
+      readingHostRef,
       selection,
       selectionText,
       services,
@@ -605,11 +636,14 @@ export default function App() {
       onTranslateSelection: (text: string) => void handleSelectionText(text),
       onRefreshPlugins: refreshPlugins,
       onShowOriginal: () => setMode("original"),
+      onJumpToBlock: jumpToBlock,
       onNotify: showError,
     }),
     [
       activeDoc,
       content,
+      mode,
+      structure,
       selection,
       selectionText,
       services,
@@ -619,6 +653,7 @@ export default function App() {
       handleSaveSettings,
       handleSelectionText,
       refreshPlugins,
+      jumpToBlock,
       showError,
     ],
   );
@@ -667,7 +702,6 @@ export default function App() {
             onZoomChange={handleZoomChange}
             onServiceChange={(service) => updateSettings({ service })}
             onTargetChange={(targetLang) => updateSettings({ targetLang })}
-            onBilingual={() => void startReading()}
             onModeChange={handleModeChange}
           />
           <div
@@ -712,6 +746,7 @@ export default function App() {
                     onTranslateContent={() => translateContent()}
                     onCancel={cancelReading}
                     onCancelBatch={cancelBatch}
+                    hostRef={readingHostRef}
                   />
                 )}
               </>

@@ -1,3 +1,5 @@
+import type { DocumentStructure } from "./structure";
+
 export interface OutlineEntry {
   id: string;
   text: string;
@@ -6,6 +8,8 @@ export interface OutlineEntry {
   href?: string;
   element?: HTMLElement;
   action?: () => void | Promise<void>;
+  /** Reading-mode anchor: the rendered block's `data-block-id`. */
+  blockId?: number;
 }
 
 export type OutlineExtractor = () => Promise<OutlineEntry[]>;
@@ -76,4 +80,19 @@ export function outlineEntriesFromHeadings(
     level: heading.level,
     element: heading.element,
   }));
+}
+
+/** Build an outline from a document structure's title/heading blocks. Works for
+ *  every format and both view modes: entries carry the block id so reading mode
+ *  can scroll to the matching `data-block-id`, plus the page when known. */
+export function outlineEntriesFromStructure(structure: DocumentStructure): OutlineEntry[] {
+  return structure.blocks
+    .filter((block) => block.kind === "title" || block.kind === "heading")
+    .map((block) => ({
+      id: `block-${block.id}`,
+      text: block.text,
+      level: block.kind === "title" ? 1 : Math.max(1, Math.min(block.level || 2, 6)),
+      page: block.page ?? undefined,
+      blockId: block.id,
+    }));
 }

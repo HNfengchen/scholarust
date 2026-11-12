@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PanelContext } from "./registry";
-import { collectHeadings, scrollToElement, scrollToPage } from "./readerDom";
-import { outlineEntriesFromHeadings } from "../outline";
+import { collectHeadings, scrollToBlock, scrollToElement, scrollToPage } from "./readerDom";
+import { outlineEntriesFromHeadings, outlineEntriesFromStructure } from "../outline";
 import type { OutlineEntry } from "../outline";
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -9,19 +9,41 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
 export default function OutlinePanel({
   document,
   content,
+  mode,
+  structure,
   structureRef,
   outlineRef,
   readerHostRef,
+  readingHostRef,
   onShowOriginal,
+  onJumpToBlock,
 }: PanelContext) {
   const isPdf = content?.kind === "pdf";
+  const isReading = mode === "reading";
   const [entries, setEntries] = useState<OutlineEntry[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setEntries([]);
-    if (!document) return;
+    if (!document) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
+
+    // Reading mode renders the shared document structure, so its outline comes
+    // straight from it — every format gets block-anchored entries that stay in
+    // reading mode when clicked.
+    if (isReading) {
+      if (structure) {
+        setEntries(outlineEntriesFromStructure(structure));
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+      return;
+    }
+
     setLoading(true);
 
     const fromReader = async (): Promise<OutlineEntry[]> => {
@@ -39,29 +61,6 @@ export default function OutlinePanel({
       }
     };
 
-    const fromPdfStructure = async (): Promise<OutlineEntry[]> => {
-      let extract = structureRef.current;
-      let tries = 0;
-      while (!extract && tries++ < 20 && !cancelled) {
-        await sleep(300);
-        extract = structureRef.current;
-      }
-      if (!extract) return [];
-      try {
-        const structure = await extract();
-        return structure.blocks
-          .filter((block) => block.kind === "heading" || block.kind === "title")
-          .map((block, index) => ({
-            id: `block-${block.id}-${index}`,
-            text: block.text,
-            level: block.kind === "title" ? 1 : Math.min(block.level || 2, 6),
-            page: block.page ?? undefined,
-          }));
-      } catch {
-        return [];
-      }
-    };
-
     const fromDom = async (): Promise<OutlineEntry[]> => {
       for (let attempt = 0; attempt <= 12 && !cancelled; attempt += 1) {
         const headings = collectHeadings(readerHostRef.current);
@@ -71,11 +70,27 @@ export default function OutlinePanel({
       return [];
     };
 
+    const fromStructure = async (): Promise<OutlineEntry[]> => {
+      if (structure) return outlineEntriesFromStructure(structure);
+      let extract = structureRef.current;
+      let tries = 0;
+      while (!extract && tries++ < 20 && !cancelled) {
+        await sleep(300);
+        extract = structureRef.current;
+      }
+      if (!extract) return [];
+      try {
+        return outlineEntriesFromStructure(await extract());
+      } catch {
+        return [];
+      }
+    };
+
     const run = async () => {
       let found = await fromReader();
-      if (!cancelled && found.length === 0) {
-        found = isPdf ? await fromPdfStructure() : await fromDom();
-      }
+      // PDF readers expose no DOM headings; polling them would only add delay.
+      if (!cancelled && found.length === 0 && !isPdf) found = await fromDom();
+      if (!cancelled && found.length === 0) found = await fromStructure();
       if (cancelled) return;
       setEntries(found);
       setLoading(false);
@@ -85,15 +100,20 @@ export default function OutlinePanel({
     return () => {
       cancelled = true;
     };
-  }, [document, content, isPdf, structureRef, outlineRef, readerHostRef]);
+  }, [document, content, isPdf, isReading, structure, structureRef, outlineRef, readerHostRef]);
 
   const handleClick = (entry: OutlineEntry) => {
-    onShowOriginal();
+    if (isReading) {
+      if (entry.blockId != null) scrollToBlock(readingHostRef.current, entry.blockId);
+      return;
+    }
     if (entry.action) {
+      onShowOriginal();
       entry.action();
       return;
     }
     if (entry.page != null) {
+      onShowOriginal();
       const page = entry.page;
       requestAnimationFrame(() =>
         requestAnimationFrame(() => scrollToPage(readerHostRef.current, page)),
@@ -101,9 +121,13 @@ export default function OutlinePanel({
       return;
     }
     if (entry.element) {
+      onShowOriginal();
       const element = entry.element;
       requestAnimationFrame(() => requestAnimationFrame(() => scrollToElement(element)));
+      return;
     }
+    // Structure-only entry: jump into reading mode at the matching block.
+    if (entry.blockId != null) onJumpToBlock(entry.blockId);
   };
 
   return (
@@ -126,7 +150,9 @@ export default function OutlinePanel({
             key={entry.id}
             className={`outline-item outline-h${Math.min(entry.level || 1, 6)}`}
             onClick={() => handleClick(entry)}
-            title={entry.page != null ? `跳转到第 ${entry.page} 页` : undefined}
+            title={
+              entry.page != null && !isReading ? `跳转到第 ${entry.page} 页` : undefined
+            }
           >
             <span className="outline-text">{entry.text}</span>
             {entry.page != null && <span className="outline-page-num">P{entry.page}</span>}

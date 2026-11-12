@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
-import { clearHighlights, highlightMatches } from "./readerDom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearHighlights, highlightMatches, scrollToBlock } from "./readerDom";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -51,5 +51,45 @@ describe("clearHighlights", () => {
     expect(p.querySelectorAll("mark").length).toBe(0);
     expect(p.textContent).toBe("The dislocation moves.");
     expect(p.childNodes.length).toBe(1);
+  });
+});
+
+describe("scrollToBlock", () => {
+  it("scrolls instantly (no animation) to the matching data-block-id and flashes it", () => {
+    document.body.innerHTML =
+      '<div id="host"><div data-block-id="7">target</div><div data-block-id="8">other</div></div>';
+    const host = document.querySelector<HTMLElement>("#host")!;
+    const target = host.querySelector<HTMLElement>('[data-block-id="7"]')!;
+    const other = host.querySelector<HTMLElement>('[data-block-id="8"]')!;
+    const scrollIntoView = vi.fn();
+    target.scrollIntoView = scrollIntoView;
+    scrollToBlock(host, 7);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    expect(target.classList.contains("search-flash")).toBe(true);
+    expect(other.classList.contains("search-flash")).toBe(false);
+  });
+
+  it("reserves the sticky reading toolbar's height via scrollMarginTop", () => {
+    document.body.innerHTML =
+      '<div id="host"><div class="reading-toolbar"></div><div data-block-id="7">target</div></div>';
+    const host = document.querySelector<HTMLElement>("#host")!;
+    const toolbar = host.querySelector<HTMLElement>(".reading-toolbar")!;
+    Object.defineProperty(toolbar, "offsetHeight", { value: 56 });
+    const target = host.querySelector<HTMLElement>('[data-block-id="7"]')!;
+    let marginDuringScroll: string | null = null;
+    target.scrollIntoView = vi.fn(() => {
+      marginDuringScroll = target.style.scrollMarginTop;
+    });
+    scrollToBlock(host, 7);
+    expect(marginDuringScroll).toBe("56px");
+    expect(target.style.scrollMarginTop).toBe("");
+  });
+
+  it("is a no-op for a missing host or block", () => {
+    document.body.innerHTML = '<div id="host"></div>';
+    const host = document.querySelector<HTMLElement>("#host")!;
+    expect(() => scrollToBlock(host, 9)).not.toThrow();
+    expect(() => scrollToBlock(null, 9)).not.toThrow();
+    expect(host.querySelector(".search-flash")).toBeNull();
   });
 });

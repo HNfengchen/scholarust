@@ -1,5 +1,5 @@
 import type { ComponentType, MutableRefObject, RefObject } from "react";
-import type { StructureExtractor } from "../structure";
+import type { DocumentStructure, StructureExtractor } from "../structure";
 import type { OutlineExtractor } from "../outline";
 import type {
   DocumentContent,
@@ -9,15 +9,19 @@ import type {
   SelectionTranslation,
   ServiceInfo,
   Settings,
+  ViewMode,
 } from "../types";
 
 export interface PanelContext {
   document: DocumentInfo | null;
   content: DocumentContent | null;
+  mode: ViewMode;
+  structure: DocumentStructure | null;
   extractorRef: MutableRefObject<ParagraphExtractor | null>;
   structureRef: MutableRefObject<StructureExtractor | null>;
   outlineRef: MutableRefObject<OutlineExtractor | null>;
   readerHostRef: RefObject<HTMLDivElement>;
+  readingHostRef: RefObject<HTMLDivElement>;
   selection: SelectionTranslation | null;
   selectionText: string | null;
   services: ServiceInfo[];
@@ -28,6 +32,7 @@ export interface PanelContext {
   onTranslateSelection: (text: string) => void;
   onRefreshPlugins: () => Promise<void>;
   onShowOriginal: () => void;
+  onJumpToBlock: (blockId: number) => void;
   onNotify: (message: string) => void;
 }
 

@@ -12,7 +12,6 @@ interface Props {
   onZoomChange: (zoom: number) => void;
   onServiceChange: (service: string) => void;
   onTargetChange: (target: string) => void;
-  onBilingual: () => void;
   onModeChange: (mode: ViewMode) => void;
 }
 
@@ -27,7 +26,6 @@ export default function Toolbar({
   onZoomChange,
   onServiceChange,
   onTargetChange,
-  onBilingual,
   onModeChange,
 }: Props) {
   return (
@@ -97,31 +95,25 @@ export default function Toolbar({
             className={mode === "original" ? "active" : ""}
             onClick={() => onModeChange("original")}
             disabled={!hasDocument}
+            title="显示文档原始排版"
           >
             原文
           </button>
           <button
-            className={mode === "reading" ? "active" : ""}
+            className={`${mode === "reading" ? "active" : ""}${translating ? " parsing" : ""}`}
             onClick={() => onModeChange("reading")}
             disabled={!hasDocument || translating}
+            title="重排为阅读模式：过滤页眉页脚，按标题/摘要/正文/注释分块，逐块翻译"
           >
-            阅读
+            {translating ? (
+              <>
+                <span className="spinner" /> 解析中…
+              </>
+            ) : (
+              "阅读"
+            )}
           </button>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={onBilingual}
-          disabled={!hasDocument || translating}
-          title="重排为阅读模式：过滤页眉页脚，按标题/摘要/正文/注释分块，逐块翻译"
-        >
-          {translating ? (
-            <>
-              <span className="spinner" /> 解析中…
-            </>
-          ) : (
-            "阅读模式"
-          )}
-        </button>
       </div>
     </header>
   );

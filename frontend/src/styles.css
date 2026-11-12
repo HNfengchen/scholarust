@@ -328,6 +328,17 @@ input:focus {
   cursor: not-allowed;
 }
 
+.mode-switch button.parsing {
+  opacity: 1;
+  cursor: progress;
+}
+
+.mode-switch button .spinner {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+}
+
 .reader-area {
   flex: 1;
   overflow-y: auto;

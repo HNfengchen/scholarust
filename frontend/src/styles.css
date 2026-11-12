@@ -21,6 +21,9 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* The app owns its scrolling regions; a page-level scrollbar must never
+     appear when the window is maximized. */
+  overflow: hidden;
 }
 
 body {
@@ -415,6 +418,59 @@ input:focus {
   display: block;
 }
 
+.reader-host.ocr-mode,
+.reader-host.ocr-mode * {
+  cursor: crosshair !important;
+  user-select: none !important;
+}
+
+.ocr-marquee {
+  position: fixed;
+  z-index: 60;
+  border: 1.5px dashed var(--accent);
+  background: rgba(79, 70, 229, 0.12);
+  pointer-events: none;
+}
+
+.ocr-marquee-done {
+  border-style: solid;
+  background: rgba(79, 70, 229, 0.06);
+}
+
+.ocr-hint {
+  position: sticky;
+  top: 12px;
+  z-index: 25;
+  width: fit-content;
+  margin: 12px auto 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.82);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.ocr-capture {
+  display: block;
+  max-width: 100%;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ocr-text {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.ocr-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 /* pdf.js TextLayer：透明文字覆盖在画布上，支持选取与划词翻译 */
 .textLayer {
   position: absolute;
@@ -478,6 +534,29 @@ input:focus {
 
 .html-reader-wrap {
   min-height: 100%;
+}
+
+.parsed-body {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+}
+
+.parsed-figure {
+  margin: 0 0 20px;
+  text-align: center;
+}
+
+.parsed-figure img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.parsed-figure figcaption {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .html-reader {
@@ -1730,6 +1809,89 @@ mark.search-hit {
   margin: 0 0 8px;
   font-size: 13px;
   line-height: 1.7;
+}
+
+.plugin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.plugin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0;
+}
+
+.plugin-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.plugin-form-field input,
+.plugin-form-field textarea,
+.plugin-form-field select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.plugin-form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.plugin-form > button {
+  align-self: flex-start;
+}
+
+.plugin-chart {
+  margin: 8px 0 0;
+}
+
+.plugin-chart-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.plugin-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.plugin-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.plugin-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plugin-chart-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
 }
 
 .plugin-contribution ul {

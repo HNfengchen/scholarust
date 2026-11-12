@@ -1,0 +1,21 @@
+{
+  "name": "图片导入",
+  "version": "0.1.0",
+  "description": "把常见图片格式（PNG/JPG/WebP/BMP/GIF/TIFF）导入文库：原文视图直接预览，阅读模式按图片块展示，图注可翻译",
+  "entry": "image_import.wasm",
+  "enabled": true,
+  "apiVersion": 2,
+  "kind": "parser",
+  "permissions": { "docRead": false, "storage": false, "http": [] },
+  "contributes": {
+    "panels": [],
+    "parsers": [
+      {
+        "id": "image",
+        "label": "图片",
+        "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"],
+        "magic": ["89504e47", "ffd8ff", "424d", "47494638", "49492a00", "4d4d002a"]
+      }
+    ]
+  }
+}

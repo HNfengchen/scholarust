@@ -41,6 +41,7 @@ function makeContext(overrides: Partial<PanelContext> = {}): PanelContext {
     readingHostRef: { current: null },
     selection: null,
     selectionText: null,
+    ocr: null,
     services: [],
     settings: null,
     plugins: [],

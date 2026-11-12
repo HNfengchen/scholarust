@@ -7,7 +7,10 @@ import PluginPanelView from "./PluginPanelView";
 import * as api from "../api";
 import type { PluginPanel } from "../types";
 
-vi.mock("../api", () => ({ pluginPanelContent: vi.fn() }));
+vi.mock("../api", () => ({
+  pluginPanelContent: vi.fn(),
+  pluginPanelAction: vi.fn(),
+}));
 
 let root: Root;
 let host: HTMLDivElement;
@@ -74,5 +77,57 @@ describe("dynamic plugin panel", () => {
     });
     expect(host.textContent).toContain("面板加载失败");
     expect(host.querySelector("script")).toBeNull();
+  });
+
+  it("runs button actions and swaps in the returned sections", async () => {
+    vi.mocked(api.pluginPanelAction).mockResolvedValue({
+      notice: "已刷新",
+      sections: [{ type: "paragraph", text: "动作结果" }],
+    });
+    await render({
+      id: "tools",
+      title: "工具",
+      sections: [
+        { type: "actions", items: [{ id: "refresh", label: "刷新" }] },
+      ],
+    });
+    const button = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
+      (item) => item.textContent === "刷新",
+    )!;
+    await act(async () => {
+      button.click();
+      await Promise.resolve();
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(api.pluginPanelAction).toHaveBeenCalledWith("统计插件", "tools", "refresh", undefined);
+    expect(host.textContent).toContain("动作结果");
+    expect(host.textContent).toContain("已刷新");
+  });
+
+  it("refreshes a dynamic panel when an action returns only a notice", async () => {
+    vi.mocked(api.pluginPanelContent).mockResolvedValue([
+      { type: "actions", items: [{ id: "save", label: "保存" }] },
+    ]);
+    vi.mocked(api.pluginPanelAction).mockResolvedValue({ notice: "已保存" });
+    await render({
+      id: "stats",
+      title: "统计",
+      dynamic: true,
+      sections: [{ type: "actions", items: [{ id: "save", label: "保存" }] }],
+    });
+    vi.mocked(api.pluginPanelContent).mockResolvedValue([
+      { type: "paragraph", text: "刷新后的内容" },
+    ]);
+    const button = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
+      (item) => item.textContent === "保存",
+    )!;
+    await act(async () => {
+      button.click();
+      await Promise.resolve();
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.textContent).toContain("已保存");
+    expect(host.textContent).toContain("刷新后的内容");
+    expect(api.pluginPanelContent).toHaveBeenCalledTimes(2);
   });
 });

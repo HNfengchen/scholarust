@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import type { Collection, DocumentInfo, DocumentKind } from "../types";
+import type { Collection, DocumentInfo, DocumentKind, PluginFormatFilter } from "../types";
 import { KIND_FILTERS, kindClass, kindLabel } from "../types";
 
 interface Props {
   documents: DocumentInfo[];
   collections: Collection[];
+  pluginFormats: PluginFormatFilter[];
   activeId: string | null;
   recentIds: string[];
   opening: boolean;
@@ -28,6 +29,7 @@ interface MenuState {
 export default function Sidebar({
   documents,
   collections,
+  pluginFormats,
   activeId,
   recentIds,
   opening,
@@ -51,6 +53,18 @@ export default function Sidebar({
     }
     return counts;
   }, [documents]);
+
+  const pluginFormatCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const format of pluginFormats) {
+      counts.set(
+        format.key,
+        documents.filter((doc) => format.extensions.some((ext) => doc.kind === `plugin:${ext}`))
+          .length,
+      );
+    }
+    return counts;
+  }, [pluginFormats, documents]);
 
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -92,12 +106,18 @@ export default function Sidebar({
       const kind = selectedKey.slice(5) as DocumentKind;
       return documents.filter((doc) => doc.kind === kind);
     }
+    if (selectedKey.startsWith("plugin-format:")) {
+      const format = pluginFormats.find((entry) => entry.key === selectedKey);
+      return format
+        ? documents.filter((doc) => format.extensions.some((ext) => doc.kind === `plugin:${ext}`))
+        : [];
+    }
     if (selectedKey.startsWith("tag:")) {
       const tag = selectedKey.slice(4);
       return documents.filter((doc) => (doc.tags ?? []).includes(tag));
     }
     return documents;
-  }, [selectedKey, documents, collections, recentIds]);
+  }, [selectedKey, documents, collections, recentIds, pluginFormats]);
 
   const nodeTitle = useMemo(() => {
     if (selectedKey === "recent") return "最近打开";
@@ -107,9 +127,12 @@ export default function Sidebar({
     if (selectedKey.startsWith("kind:")) {
       return KIND_FILTERS.find((filter) => filter.kind === selectedKey.slice(5))?.label ?? "格式";
     }
+    if (selectedKey.startsWith("plugin-format:")) {
+      return pluginFormats.find((format) => format.key === selectedKey)?.label ?? "格式";
+    }
     if (selectedKey.startsWith("tag:")) return `标签：${selectedKey.slice(4)}`;
     return "全部文档";
-  }, [selectedKey, collections]);
+  }, [selectedKey, collections, pluginFormats]);
 
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
@@ -268,16 +291,30 @@ export default function Sidebar({
           </div>
           <div className="kind-filter">
             <select
-              value={selectedKey.startsWith("kind:") ? selectedKey.slice(5) : ""}
-              onChange={(event) =>
-                setSelectedKey(event.target.value ? `kind:${event.target.value}` : "all")
+              value={
+                selectedKey.startsWith("kind:")
+                  ? selectedKey.slice(5)
+                  : selectedKey.startsWith("plugin-format:")
+                    ? selectedKey
+                    : ""
               }
+              onChange={(event) => {
+                const value = event.target.value;
+                if (!value) setSelectedKey("all");
+                else if (value.startsWith("plugin-format:")) setSelectedKey(value);
+                else setSelectedKey(`kind:${value}`);
+              }}
               title="按文档格式筛选"
             >
               <option value="">全部格式（{documents.length}）</option>
               {KIND_FILTERS.map((filter) => (
                 <option key={filter.kind} value={filter.kind}>
                   {filter.label}（{kindCounts.get(filter.kind) ?? 0}）
+                </option>
+              ))}
+              {pluginFormats.map((format) => (
+                <option key={format.key} value={format.key}>
+                  {format.label}（{pluginFormatCounts.get(format.key) ?? 0}）
                 </option>
               ))}
             </select>

@@ -4,6 +4,7 @@ import type { OutlineExtractor } from "../outline";
 import type {
   DocumentContent,
   DocumentInfo,
+  OcrCapture,
   ParagraphExtractor,
   PluginInfo,
   SelectionTranslation,
@@ -24,6 +25,7 @@ export interface PanelContext {
   readingHostRef: RefObject<HTMLDivElement>;
   selection: SelectionTranslation | null;
   selectionText: string | null;
+  ocr: OcrCapture | null;
   services: ServiceInfo[];
   settings: Settings | null;
   plugins: PluginInfo[];

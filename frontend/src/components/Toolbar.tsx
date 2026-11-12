@@ -92,7 +92,7 @@ export default function Toolbar({
         )}
         <div className="mode-switch">
           <button
-            className={mode === "original" ? "active" : ""}
+            className={mode !== "reading" ? "active" : ""}
             onClick={() => onModeChange("original")}
             disabled={!hasDocument}
             title="显示文档原始排版"
@@ -100,12 +100,12 @@ export default function Toolbar({
             原文
           </button>
           <button
-            className={`${mode === "reading" ? "active" : ""}${translating ? " parsing" : ""}`}
+            className={`${mode === "reading" ? "active" : ""}${translating && mode === "reading" ? " parsing" : ""}`}
             onClick={() => onModeChange("reading")}
-            disabled={!hasDocument || translating}
+            disabled={!hasDocument}
             title="重排为阅读模式：过滤页眉页脚，按标题/摘要/正文/注释分块，逐块翻译"
           >
-            {translating ? (
+            {translating && mode === "reading" ? (
               <>
                 <span className="spinner" /> 解析中…
               </>

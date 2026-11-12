@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/core", "crates/translate", "crates/plugin-host", "app"]
-exclude = ["plugins/example-translate", "frontend"]
+exclude = ["plugins/example-translate", "plugins/image-import", "frontend"]
 
 [workspace.package]
 version = "0.1.0"

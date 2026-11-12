@@ -1,6 +1,10 @@
 {
   "name": "材料专业英文术语",
-  "version": "0.2.0",
-  "description": "材料科学专业英文术语插件：内置 650 余条主流术语（金属/陶瓷/高分子/复合材料/纳米材料/表征/力学性能/热处理/腐蚀/加工等），将英文术语替换为规范中文译名",
-  "entry": "example_translate.wasm"
+  "version": "0.3.0",
+  "description": "材料科学专业英文术语中间层：翻译完成后自动把译文中残留的英文术语替换为规范中文译名（内置 650 余条术语）",
+  "entry": "example_translate.wasm",
+  "enabled": true,
+  "apiVersion": 2,
+  "kind": "middleware",
+  "permissions": { "docRead": false, "storage": false, "http": [] }
 }

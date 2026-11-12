@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./components/Sidebar";
 import Toolbar from "./components/Toolbar";
@@ -17,12 +18,16 @@ import type {
   StructureExtractor,
 } from "./structure";
 import type { OutlineExtractor } from "./outline";
+import { normalizeOcrText } from "./ocrText";
+import { computeCrop, ocrSourceOf } from "./ocrSelection";
 import type {
   BlockTranslation,
   Collection,
   DocumentContent,
   DocumentInfo,
+  OcrCapture,
   ParagraphExtractor,
+  PluginFormatFilter,
   PluginInfo,
   SelectionTranslation,
   ServiceInfo,
@@ -85,6 +90,7 @@ export default function App() {
     null,
   );
   const [blockTranslations, setBlockTranslations] = useState<Record<number, BlockTranslation>>({});
+  const [ocr, setOcr] = useState<OcrCapture | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
   const [selection, setSelection] = useState<SelectionTranslation | null>(null);
   const [selectionText, setSelectionText] = useState<string | null>(null);
@@ -189,8 +195,12 @@ export default function App() {
     let cancelled = false;
     setContent(null);
     setMode("original");
+    // OCR selection belongs to the document it was started on; a new document
+    // starts a fresh session instead of leaving a stale crosshair state.
+    setActivePanelId((prev) => (prev === "ocr" ? null : prev));
     setStructure(null);
     pendingBlockRef.current = null;
+    setOcr(null);
     setExtractProgress(null);
     setStructureLoading(false);
     setBlockTranslations({});
@@ -231,6 +241,24 @@ export default function App() {
             ),
         ),
       ),
+    [plugins],
+  );
+
+  // Format categories contributed by enabled parser plugins (e.g. the image
+// plugin adds an "图片" entry to the sidebar's format filter).
+  const pluginFormats = useMemo<PluginFormatFilter[]>(
+    () =>
+      plugins
+        .filter((plugin) => plugin.enabled)
+        .flatMap((plugin) =>
+          plugin.contributes.parsers
+            .filter((parser) => parser.extensions.length > 0)
+            .map((parser) => ({
+              key: `plugin-format:${plugin.name}:${parser.id}`,
+              label: parser.label?.trim() || parser.id,
+              extensions: parser.extensions.map((extension) => extension.toLowerCase()),
+            })),
+        ),
     [plugins],
   );
 
@@ -411,12 +439,15 @@ export default function App() {
 
   const startReading = useCallback(async () => {
     const doc = activeDoc;
-    if (!doc || structureLoading) return;
+    if (!doc) return;
+    readingAbortRef.current?.abort();
+    readingAbortRef.current = null;
     const cached = readingCache.current.get(doc.id);
     if (cached) {
       setStructure(cached.structure);
       setBlockTranslations(cached.translations);
       setExtractProgress(null);
+      setStructureLoading(false);
       setMode("reading");
       return;
     }
@@ -458,7 +489,101 @@ export default function App() {
         }
       }
     }
-  }, [activeDoc, structureLoading, showError]);
+  }, [activeDoc, showError]);
+
+  /** Runs OCR on one selected page region and shows it in the right pane. */
+  const handleOcrSelection = useCallback(
+    async (png: string) => {
+      setActivePanelId("ocr");
+      const image = `data:image/png;base64,${png}`;
+      setOcr({ status: "loading", image });
+      try {
+        const text = await api.ocrImage(png);
+        setOcr({ status: "done", image, text: normalizeOcrText(text) });
+      } catch (err) {
+        setOcr({ status: "error", image, message: String(err) });
+      }
+    },
+    [],
+  );
+
+  /** Drag-selects a region of a page canvas or image while the OCR panel is open. */
+  const handleReaderPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (mode !== "ocr" || event.button !== 0) return;
+      const source = ocrSourceOf(event.target as Element);
+      if (!source) return;
+      const rect = source.element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      event.preventDefault();
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const marquee = document.createElement("div");
+      marquee.className = "ocr-marquee";
+      document.body.appendChild(marquee);
+      const clampTo = (value: number, min: number, max: number) =>
+        Math.min(max, Math.max(min, value));
+
+      const draw = (clientX: number, clientY: number) => {
+        const left = clampTo(Math.min(startX, clientX), rect.left, rect.right);
+        const top = clampTo(Math.min(startY, clientY), rect.top, rect.bottom);
+        const right = clampTo(Math.max(startX, clientX), rect.left, rect.right);
+        const bottom = clampTo(Math.max(startY, clientY), rect.top, rect.bottom);
+        marquee.style.left = `${left}px`;
+        marquee.style.top = `${top}px`;
+        marquee.style.width = `${right - left}px`;
+        marquee.style.height = `${bottom - top}px`;
+        return {
+          left: left - rect.left,
+          top: top - rect.top,
+          width: right - left,
+          height: bottom - top,
+        };
+      };
+
+      const onMove = (moveEvent: PointerEvent) => {
+        draw(moveEvent.clientX, moveEvent.clientY);
+      };
+      const onUp = (upEvent: PointerEvent) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        const box = draw(upEvent.clientX, upEvent.clientY);
+        if (box.width < 8 || box.height < 8) {
+          marquee.remove();
+          return;
+        }
+        const crop = computeCrop(source.width, source.height, rect.width, rect.height, box);
+        const canvas = document.createElement("canvas");
+        canvas.width = crop.outW;
+        canvas.height = crop.outH;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          marquee.remove();
+          return;
+        }
+        context.drawImage(
+          source.element,
+          crop.sx,
+          crop.sy,
+          crop.sw,
+          crop.sh,
+          0,
+          0,
+          crop.outW,
+          crop.outH,
+        );
+        const dataUrl = canvas.toDataURL("image/png");
+        void handleOcrSelection(dataUrl.slice(dataUrl.indexOf(",") + 1));
+        marquee.classList.add("ocr-marquee-done");
+        window.setTimeout(() => marquee.remove(), 1200);
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [mode, handleOcrSelection],
+  );
 
   const applyTranslation = useCallback(
     (docId: string, blockId: number, translation: BlockTranslation) => {
@@ -532,10 +657,24 @@ export default function App() {
 
   const handleModeChange = useCallback(
     (next: ViewMode) => {
-      if (next === "reading") void startReading();
-      else cancelReading();
+      if (next === mode) return;
+      // Leaving OCR mode also closes its panel; the panel drives OCR mode.
+      if (mode === "ocr" && activePanelId === "ocr") setActivePanelId(null);
+      // A translation batch targets the old block ids; stop scheduling.
+      batchSeq.current++;
+      setBatchRunning(false);
+      if (next === "original") {
+        cancelReading();
+        return;
+      }
+      readingAbortRef.current?.abort();
+      readingAbortRef.current = null;
+      setStructureLoading(false);
+      setExtractProgress(null);
+      if (next === "ocr") setMode("ocr");
+      else void startReading();
     },
-    [startReading, cancelReading],
+    [mode, activePanelId, startReading, cancelReading],
   );
 
   const jumpToBlock = useCallback(
@@ -607,13 +746,38 @@ export default function App() {
   );
 
   const handleReaderMouseUp = useCallback(() => {
+    // In OCR mode dragging selects a region for recognition instead of text.
+    if (mode === "ocr") return;
     const text = window.getSelection()?.toString() ?? "";
     if (text.trim()) void handleSelectionText(text);
-  }, [handleSelectionText]);
+  }, [handleSelectionText, mode]);
 
-  const handleSelectPanel = useCallback((id: string) => {
-    setActivePanelId((prev) => (prev === id ? null : id));
-  }, []);
+  const handleSelectPanel = useCallback(
+    (id: string) => {
+      const next = activePanelId === id ? null : id;
+      setActivePanelId(next);
+      if (next === "ocr") {
+        // Opening the OCR panel arms region selection on the original pages.
+        if (activeDoc && content) {
+          batchSeq.current++;
+          setBatchRunning(false);
+          readingAbortRef.current?.abort();
+          readingAbortRef.current = null;
+          setStructureLoading(false);
+          setExtractProgress(null);
+          setMode("ocr");
+        }
+      } else if (mode === "ocr") {
+        setMode("original");
+      }
+    },
+    [activePanelId, activeDoc, content, mode],
+  );
+
+  const handleClosePanel = useCallback(() => {
+    if (activePanelId === "ocr") setMode("original");
+    setActivePanelId(null);
+  }, [activePanelId]);
 
   const panelContext = useMemo<PanelContext>(
     () => ({
@@ -628,6 +792,7 @@ export default function App() {
       readingHostRef,
       selection,
       selectionText,
+      ocr,
       services,
       settings,
       plugins,
@@ -646,6 +811,7 @@ export default function App() {
       structure,
       selection,
       selectionText,
+      ocr,
       services,
       settings,
       plugins,
@@ -677,6 +843,7 @@ export default function App() {
         <Sidebar
           documents={documents}
           collections={collections}
+          pluginFormats={pluginFormats}
           activeId={activeDoc?.id ?? null}
           recentIds={recentIds}
           opening={opening}
@@ -717,9 +884,15 @@ export default function App() {
             {activeDoc && contentLoading && <div className="reader-status">正在加载文档…</div>}
             {activeDoc && content && (
               <>
+                {mode === "ocr" && (
+                  <div className="ocr-hint">
+                    在页面或图片上拖动框选区域，识别结果会显示在右侧「OCR」面板
+                  </div>
+                )}
                 <div
                   ref={readerHostRef}
-                  className={mode === "reading" ? "reader-hidden" : "reader-host"}
+                  className={`${mode === "reading" ? "reader-hidden" : "reader-host"}${mode === "ocr" ? " ocr-mode" : ""}`}
+                  onPointerDown={mode === "ocr" ? handleReaderPointerDown : undefined}
                 >
                   <Reader
                     key={`${content.kind}:${content.path}`}
@@ -757,7 +930,7 @@ export default function App() {
           activePanelId={activePanelId}
           context={panelContext}
           onSelectPanel={handleSelectPanel}
-          onClosePanel={() => setActivePanelId(null)}
+          onClosePanel={handleClosePanel}
           panelWidth={paneWidth}
           getMaxPanelWidth={() => centerRef.current?.clientWidth ?? 600}
           onPanelWidthChange={handlePanelWidthChange}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import PluginContributions from "./PluginContributions";
-import type { PluginPanel, PluginPanelSection } from "../types";
+import type { PluginActionValues, PluginPanel, PluginPanelSection } from "../types";
 
 /** A plugin-contributed right-pane panel. Content is text-only; dynamic
  * panels are refreshed by asking the host to call the plugin's `panel`
@@ -18,6 +18,8 @@ export default function PluginPanelView({
     panel.dynamic ? "loading" : "ready",
   );
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!panel.dynamic) return;
@@ -35,6 +37,32 @@ export default function PluginPanelView({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleAction = useCallback(
+    async (panelId: string, actionId: string, values?: PluginActionValues) => {
+      setBusy(`${panelId}:${actionId}`);
+      setError("");
+      setNotice("");
+      try {
+        const response = await api.pluginPanelAction(pluginName, panelId, actionId, values);
+        if (response.sections) {
+          setSections(response.sections);
+          setStatus("ready");
+        } else if (panel.dynamic) {
+          // No replacement sections: refresh the live panel instead.
+          setSections(await api.pluginPanelContent(pluginName, panel.id));
+          setStatus("ready");
+        }
+        if (response.notice) setNotice(response.notice);
+      } catch (err) {
+        setError(String(err));
+        setStatus("error");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [pluginName, panel.dynamic, panel.id],
+  );
 
   return (
     <div className="panel-body plugin-panel-body">
@@ -54,8 +82,13 @@ export default function PluginPanelView({
       {status === "error" && (
         <div className="extension-notice error">面板加载失败：{error}</div>
       )}
+      {notice && <div className="extension-notice ok">{notice}</div>}
       {status !== "loading" && (
-        <PluginContributions panels={[{ ...panel, sections }]} />
+        <PluginContributions
+          panels={[{ ...panel, sections }]}
+          onAction={(panelId, actionId, values) => void handleAction(panelId, actionId, values)}
+          busy={busy}
+        />
       )}
     </div>
   );

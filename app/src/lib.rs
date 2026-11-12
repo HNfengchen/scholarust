@@ -34,6 +34,14 @@ pub fn run() {
             let models_dir = model::resolve_models_dir(&data_dir);
             let model_manager = Arc::new(ModelManager::new(models_dir));
 
+            // WebView zoom can persist from a previous session; reset it so a
+            // maximized window renders at 100% instead of looking blown up.
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(err) = window.set_zoom(1.0) {
+                    eprintln!("reset webview zoom failed: {err}");
+                }
+            }
+
             let mut registry = ServiceRegistry::new();
             registry.register(Arc::new(GoogleService::default()));
             registry.register(Arc::new(MyMemoryService::default()));
@@ -45,6 +53,7 @@ pub fn run() {
                 PluginHost::load_dir_with_context(&data_dir.join("plugins"), plugin_docs.clone());
             let parsers = plugin_host.parsers.clone();
             let plugin_panels = plugin_host.panels.clone();
+            let middlewares = plugin_host.middlewares.clone();
             for service in plugin_host.services {
                 registry.register(service);
             }
@@ -57,6 +66,7 @@ pub fn run() {
                 plugins: Mutex::new(plugin_host.plugins),
                 parsers: Mutex::new(parsers),
                 plugin_panels: Mutex::new(plugin_panels),
+                middlewares: Mutex::new(middlewares),
                 plugin_docs,
                 data_dir,
                 model: model_manager,
@@ -82,6 +92,7 @@ pub fn run() {
             commands::parse_document,
             commands::inspect_plugin,
             commands::plugin_panel_content,
+            commands::plugin_panel_action,
             commands::get_library,
             commands::create_collection,
             commands::rename_collection,
@@ -93,6 +104,11 @@ pub fn run() {
             commands::model_status,
             commands::start_model,
             commands::stop_model,
+            commands::ocr_status,
+            commands::start_ocr,
+            commands::stop_ocr,
+            commands::ocr_model_info,
+            commands::ocr_image,
             commands::layout_model_info,
             commands::read_layout_model,
             commands::detect_layout,
@@ -105,7 +121,10 @@ pub fn run() {
         if let tauri::RunEvent::Exit = event {
             if let Some(state) = app_handle.try_state::<AppState>() {
                 let manager = state.model.clone();
-                tauri::async_runtime::block_on(manager.stop());
+                tauri::async_runtime::block_on(async {
+                    manager.stop().await;
+                    manager.stop_ocr().await;
+                });
             }
         }
     });

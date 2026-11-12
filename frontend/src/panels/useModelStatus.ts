@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { modelStatus, startModel, stopModel } from "../api";
-import type { ModelStatus } from "../types";
+import { modelStatus, ocrModelInfo, ocrStatus, startModel, stopModel } from "../api";
+import type { ModelStatus, OcrModelInfo } from "../types";
 
 export interface ModelStatusState {
   status: ModelStatus | null;
@@ -75,4 +75,34 @@ export function modelStateText(status: ModelStatus | null, busy: "start" | "stop
   if (busy === "stop") return "停止中…";
   if (status) return status.detail || (status.running ? "运行中" : "已停止");
   return "获取状态中…";
+}
+
+export interface OcrModelState {
+  info: OcrModelInfo | null;
+  status: ModelStatus | null;
+  refresh: () => Promise<void>;
+}
+
+/** Auto-scanned OCR model pair under `models/ocr` plus its server state. */
+export function useOcrModel(): OcrModelState {
+  const [info, setInfo] = useState<OcrModelInfo | null>(null);
+  const [status, setStatus] = useState<ModelStatus | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const scanned = await ocrModelInfo();
+      setInfo(scanned);
+      setStatus(await ocrStatus());
+    } catch {
+      /* keep the previous scan */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 8000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  return { info, status, refresh };
 }

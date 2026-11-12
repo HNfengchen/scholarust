@@ -15,6 +15,7 @@ function kindLabel(kind: PluginInfo["kind"]): string {
   if (kind === "panel") return "面板插件";
   if (kind === "parser") return "解析插件";
   if (kind === "translate") return "翻译插件";
+  if (kind === "middleware") return "术语中间层";
   return "未知类型";
 }
 
@@ -112,7 +113,9 @@ export default function ExtensionsPanel({ plugins, onRefreshPlugins }: PanelCont
           ? `插件「${info.name}」导入成功，已注册为翻译服务`
           : info.kind === "parser"
             ? `插件「${info.name}」导入成功，已注册解析格式`
-            : `插件「${info.name}」导入成功`,
+            : info.kind === "middleware"
+              ? `插件「${info.name}」导入成功，已启用术语中间层`
+              : `插件「${info.name}」导入成功`,
         kind: "ok",
       });
     } catch (err) {

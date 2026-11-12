@@ -103,6 +103,29 @@ describe("plugin parser reader", () => {
     });
   });
 
+  it("previews figure images in the original view", async () => {
+    vi.mocked(api.parseDocument).mockResolvedValue({
+      title: "photo",
+      notice: null,
+      blocks: [
+        {
+          id: 0,
+          kind: "figure",
+          text: "photo.png",
+          level: 0,
+          image: "data:image/png;base64,AA==",
+        },
+      ],
+    });
+    await render();
+    expect(host.querySelector(".parsed-figure img")?.getAttribute("src")).toBe(
+      "data:image/png;base64,AA==",
+    );
+    expect(host.querySelector("figcaption")?.textContent).toBe("photo.png");
+    // Figure captions are rendered by the figure itself, not as loose text.
+    expect(host.querySelector("pre")?.textContent ?? "").not.toContain("photo.png");
+  });
+
   it("reports parser failures", async () => {
     vi.mocked(api.parseDocument).mockRejectedValue(new Error("bad format"));
     await render();

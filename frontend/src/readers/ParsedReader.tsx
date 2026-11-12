@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import * as api from "../api";
-import type { DocumentStructure, ReadingStructureExtractor, StructureExtractor } from "../structure";
+import type { DocumentStructure, ReadingStructureExtractor, StructuredBlock, StructureExtractor } from "../structure";
 import type { BlockKind } from "../structure";
 import type { OutlineExtractor, OutlineEntry } from "../outline";
 import type { ParagraphExtractor } from "../types";
@@ -56,6 +56,7 @@ export default function ParsedReader({
   const cacheRef = useRef(new Map<string, Promise<DocumentStructure>>());
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [rawText, setRawText] = useState("");
+  const [figures, setFigures] = useState<{ src: string; caption: string }[]>([]);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -88,8 +89,19 @@ export default function ParsedReader({
       (structure) => {
         if (cancelled) return;
         setStatus("ready");
+        // Images (for example from the image-import plugin) are shown above
+        // the text; their captions are already rendered by the figure itself.
+        setFigures(
+          structure.blocks
+            .filter(
+              (block): block is StructuredBlock & { image: string } =>
+                block.kind === "figure" && !!block.image,
+            )
+            .map((block) => ({ src: block.image, caption: block.text })),
+        );
         setRawText(
           structure.blocks
+            .filter((block) => block.kind !== "figure")
             .map((block) => block.text.trim())
             .filter(Boolean)
             .join("\n\n"),
@@ -119,9 +131,15 @@ export default function ParsedReader({
       {status === "loading" && <div className="reader-status">正在通过插件解析…</div>}
       {status === "error" && <div className="reader-status reader-error-text">{message}</div>}
       {status === "ready" && (
-        <pre className="raw-text parsed-text" style={{ zoom }}>
-          {rawText}
-        </pre>
+        <div className="parsed-body" style={{ zoom }}>
+          {figures.map((figure, index) => (
+            <figure className="parsed-figure" key={index}>
+              <img src={figure.src} alt={figure.caption || "导入的图片"} />
+              {figure.caption && <figcaption>{figure.caption}</figcaption>}
+            </figure>
+          ))}
+          {rawText && <pre className="raw-text parsed-text">{rawText}</pre>}
+        </div>
       )}
     </div>
   );

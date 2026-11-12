@@ -1,14 +1,24 @@
 import { useEffect, useState } from "react";
 import type { PanelContext } from "./registry";
-import { useModelStatus, modelDotClass, modelStateText } from "./useModelStatus";
+import { useOcrModel, useModelStatus, modelDotClass, modelStateText } from "./useModelStatus";
 import { serviceHint } from "../types";
 import type { Settings } from "../types";
 
-export default function SettingsPanel({ settings, services, onSaveSettings, onNotify }: PanelContext) {
+export default function SettingsPanel({
+  settings,
+  services,
+  plugins,
+  onSaveSettings,
+  onNotify,
+}: PanelContext) {
   const [draft, setDraft] = useState<Settings | null>(settings);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const model = useModelStatus(onNotify);
+  const ocr = useOcrModel();
+  const middlewareNames = plugins
+    .filter((plugin) => plugin.enabled && plugin.kind === "middleware")
+    .map((plugin) => plugin.name);
 
   useEffect(() => {
     setDraft(settings);
@@ -55,6 +65,11 @@ export default function SettingsPanel({ settings, services, onSaveSettings, onNo
           </select>
         </label>
         <div className="service-hint">{serviceHint(draft?.service)}</div>
+        {middlewareNames.length > 0 && (
+          <div className="service-hint">
+            术语中间层：{middlewareNames.join("、")}（每次翻译后自动校正译文）
+          </div>
+        )}
         {draft?.service === "openai" && (
           <>
             <div className="settings-group-title">OpenAI 兼容接口</div>
@@ -134,6 +149,28 @@ export default function SettingsPanel({ settings, services, onSaveSettings, onNo
           </div>
         </div>
         <div className="model-hint">本地 GGUF 模型（放入 models/llm 文件夹），首次启动需加载约 10-30 秒</div>
+      </section>
+
+      <section className="panel-section">
+        <h3>OCR 模型（扫描件 PDF）</h3>
+        <div className="model-card">
+          <span className={modelDotClass(ocr.status, null)} />
+          <span className="model-detail">
+            {ocr.info?.available
+              ? `${ocr.info.model} + ${ocr.info.mmproj}`
+              : "未检测到 OCR 模型"}
+          </span>
+          <div className="model-actions">
+            <button className="btn" onClick={() => void ocr.refresh()}>
+              重新扫描
+            </button>
+          </div>
+        </div>
+        <div className="model-hint">
+          {ocr.info?.available
+            ? `自动扫描 ${ocr.info.dir}；在右栏打开「OCR」面板后，于 PDF 页面或图片上框选识别。${ocr.status?.running ? "推理服务运行中。" : "首次识别时自动启动。"}`
+            : `将主模型 GGUF 与对应的 mmproj GGUF 放入 ${ocr.info?.dir ?? "models/ocr"} 的同一个模型文件夹（如 models/ocr/MiniCPM-OCR-1.0/），会自动扫描配对。`}
+        </div>
       </section>
     </div>
   );

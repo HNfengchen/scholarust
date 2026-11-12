@@ -27,6 +27,28 @@ export interface ModelStatus {
   detail: string;
 }
 
+export interface OcrModelInfo {
+  available: boolean;
+  model: string;
+  mmproj: string;
+  dir: string;
+}
+
+/** A format category contributed by an enabled parser plugin (e.g. 图片). */
+export interface PluginFormatFilter {
+  key: string;
+  label: string;
+  extensions: string[];
+}
+
+/** One OCR capture: the selected region image and its recognized text. */
+export interface OcrCapture {
+  status: "loading" | "done" | "error";
+  image?: string;
+  text?: string;
+  message?: string;
+}
+
 export interface LayoutModelInfo {
   path: string;
   exists: boolean;
@@ -45,7 +67,7 @@ export interface Settings {
   openaiKey: string;
 }
 
-export type PluginKind = "translate" | "panel" | "parser" | "other";
+export type PluginKind = "translate" | "panel" | "parser" | "middleware" | "other";
 
 export interface PluginPermissions {
   docRead: boolean;
@@ -58,10 +80,64 @@ export interface PluginPanelKeyValue {
   value: string;
 }
 
+export type PluginButtonTone = "default" | "primary" | "danger";
+
+export interface PluginPanelActionItem {
+  id: string;
+  label: string;
+  tone?: PluginButtonTone;
+  disabled?: boolean;
+}
+
+export type PluginFormFieldKind = "text" | "textarea" | "number" | "select" | "checkbox";
+
+export interface PluginFormOption {
+  value: string;
+  label: string;
+}
+
+export type PluginFormValue = string | number | boolean | null;
+
+export interface PluginFormField {
+  id: string;
+  label: string;
+  kind?: PluginFormFieldKind;
+  placeholder?: string;
+  value?: PluginFormValue;
+  options?: PluginFormOption[];
+  required?: boolean;
+  min?: number;
+  max?: number;
+}
+
+export type PluginActionValues = Record<string, PluginFormValue>;
+
+export type PluginChartKind = "bar" | "line" | "pie";
+
+export interface PluginChartSeries {
+  name: string;
+  values: number[];
+}
+
+export interface PluginPanelChart {
+  kind: PluginChartKind;
+  title?: string;
+  labels: string[];
+  series: PluginChartSeries[];
+}
+
 export type PluginPanelSection =
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
-  | { type: "keyValue"; items: PluginPanelKeyValue[] };
+  | { type: "keyValue"; items: PluginPanelKeyValue[] }
+  | { type: "actions"; items: PluginPanelActionItem[] }
+  | { type: "form"; id: string; submitLabel?: string; fields: PluginFormField[] }
+  | ({ type: "chart" } & PluginPanelChart);
+
+export interface PluginPanelActionResponse {
+  sections?: PluginPanelSection[];
+  notice?: string;
+}
 
 export type PluginPanelIcon = "info" | "list" | "table" | "book" | "notes" | "sparkle";
 
@@ -136,7 +212,7 @@ export interface DocumentContent {
   path: string;
 }
 
-export type ViewMode = "original" | "reading";
+export type ViewMode = "original" | "reading" | "ocr";
 
 export interface Paragraph {
   text: string;

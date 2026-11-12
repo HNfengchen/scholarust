@@ -1,5 +1,5 @@
 use scholarust_core::Library;
-use scholarust_plugin_host::{DocContext, LoadedPanel, LoadedParser, PluginInfo};
+use scholarust_plugin_host::{DocContext, LoadedMiddleware, LoadedPanel, LoadedParser, PluginInfo};
 use scholarust_translate::{OpenAIConfig, ServiceRegistry};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -66,6 +66,8 @@ pub struct AppState {
     pub parsers: Mutex<Vec<LoadedParser>>,
     /// Enabled plugins that serve dynamic panels.
     pub plugin_panels: Mutex<Vec<LoadedPanel>>,
+    /// Enabled plugins that post-process every translation result.
+    pub middlewares: Mutex<Vec<LoadedMiddleware>>,
     /// Read-only document snapshot exposed to plugins that declare `docRead`.
     pub plugin_docs: DocContext,
     pub data_dir: PathBuf,

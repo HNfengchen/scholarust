@@ -1,6 +1,7 @@
 import { registerPanel } from "./registry";
 import TranslatePanel from "./TranslatePanel";
 import OutlinePanel from "./OutlinePanel";
+import OcrPanel from "./OcrPanel";
 import NotesPanel from "./NotesPanel";
 import SearchPanel from "./SearchPanel";
 import ExtensionsPanel from "./ExtensionsPanel";
@@ -15,6 +16,8 @@ const ICON_OUTLINE =
   "M3 9h14V7H3v2zm0 4h14v-2H3v2zm0 4h14v-2H3v2zm16 0h2v-2h-2v2zm0-10v2h2V7h-2zm0 6h2v-2h-2v2z";
 const ICON_NOTES =
   "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z";
+const ICON_OCR =
+  "M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z";
 const ICON_SEARCH =
   "M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z";
 const ICON_EXTENSIONS =
@@ -34,6 +37,13 @@ registerPanel({
   title: "大纲",
   icon: icon(ICON_OUTLINE),
   render: OutlinePanel,
+});
+
+registerPanel({
+  id: "ocr",
+  title: "OCR",
+  icon: icon(ICON_OCR),
+  render: OcrPanel,
 });
 
 registerPanel({

@@ -20,7 +20,7 @@ pub use runtime::{
 
 /// The host API version this build understands. Manifests without
 /// `apiVersion` are treated as version 1, so existing plugins keep loading.
-pub const HOST_API_VERSION: u32 = 2;
+pub const HOST_API_VERSION: u32 = 3;
 const MAX_HTTP_HOSTS: usize = 32;
 const MAX_PANELS: usize = 8;
 const MAX_PANEL_SECTIONS: usize = 32;
@@ -44,6 +44,9 @@ pub enum PluginKind {
     Panel,
     /// A plugin that parses custom document formats via an `extract` export.
     Parser,
+    /// A plugin applied to every translation result (e.g. glossary cleanup).
+    /// It reuses the `translate` export and never appears as a service.
+    Middleware,
     #[serde(other)]
     Other,
 }
@@ -66,12 +69,174 @@ pub struct PanelKeyValue {
     pub value: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelButtonTone {
+    #[default]
+    Default,
+    Primary,
+    Danger,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelActionItem {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub tone: PanelButtonTone,
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelFieldKind {
+    Text,
+    Textarea,
+    Number,
+    Select,
+    Checkbox,
+}
+
+impl Default for PanelFieldKind {
+    fn default() -> Self {
+        Self::Text
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelFormOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// Form values are limited to JSON scalars; the host rejects objects/arrays.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PanelScalar {
+    Bool(bool),
+    Number(f64),
+    Text(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelFormField {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub kind: PanelFieldKind,
+    #[serde(default)]
+    pub placeholder: String,
+    #[serde(default)]
+    pub value: Option<PanelScalar>,
+    #[serde(default)]
+    pub options: Vec<PanelFormOption>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub min: Option<f64>,
+    #[serde(default)]
+    pub max: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelChartKind {
+    Bar,
+    Line,
+    Pie,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelChartSeries {
+    pub name: String,
+    pub values: Vec<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PanelSection {
-    Paragraph { text: String },
-    List { items: Vec<String> },
-    KeyValue { items: Vec<PanelKeyValue> },
+    Paragraph {
+        text: String,
+    },
+    List {
+        items: Vec<String>,
+    },
+    KeyValue {
+        items: Vec<PanelKeyValue>,
+    },
+    /// Buttons that call the plugin's `action` export.
+    Actions {
+        items: Vec<PanelActionItem>,
+    },
+    /// Editable fields; submitting calls `action` with the field values.
+    Form {
+        id: String,
+        #[serde(default)]
+        submit_label: String,
+        fields: Vec<PanelFormField>,
+    },
+    /// Invariants: every series has exactly `labels.len()` finite values.
+    Chart {
+        kind: PanelChartKind,
+        #[serde(default)]
+        title: String,
+        labels: Vec<String>,
+        series: Vec<PanelChartSeries>,
+    },
+}
+
+impl PanelSection {
+    fn is_interactive(&self) -> bool {
+        matches!(self, Self::Actions { .. } | Self::Form { .. })
+    }
+
+    fn text_len(&self) -> usize {
+        match self {
+            Self::Paragraph { text } => text.len(),
+            Self::List { items } => items.iter().map(String::len).sum(),
+            Self::KeyValue { items } => items.iter().map(|item| item.key.len() + item.value.len()).sum(),
+            Self::Actions { items } => items
+                .iter()
+                .map(|item| item.id.len() + item.label.len())
+                .sum(),
+            Self::Form { id, submit_label, fields } => {
+                id.len()
+                    + submit_label.len()
+                    + fields
+                        .iter()
+                        .map(|field| {
+                            field.id.len()
+                                + field.label.len()
+                                + field.placeholder.len()
+                                + field
+                                    .options
+                                    .iter()
+                                    .map(|option| option.value.len() + option.label.len())
+                                    .sum::<usize>()
+                        })
+                        .sum::<usize>()
+            }
+            Self::Chart { title, labels, series, .. } => {
+                title.len()
+                    + labels.iter().map(String::len).sum::<usize>()
+                    + series.iter().map(|series| series.name.len()).sum::<usize>()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelActionResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Vec<PanelSection>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 const PANEL_ICONS: [&str; 6] = ["info", "list", "table", "book", "notes", "sparkle"];
@@ -226,6 +391,14 @@ impl LoadedPanel {
             .any(|panel| panel.id == panel_id && panel.dynamic)
     }
 
+    fn declares_panel(&self, panel_id: &str) -> bool {
+        self.info
+            .contributes
+            .panels
+            .iter()
+            .any(|panel| panel.id == panel_id)
+    }
+
     /// Ask the plugin for a panel's sections. The plugin may use any L2
     /// capability it declared; the host only validates the response shape.
     pub async fn sections(&self, panel_id: &str) -> anyhow::Result<Vec<PanelSection>> {
@@ -246,6 +419,62 @@ impl LoadedPanel {
         validate_sections(&raw.sections)?;
         Ok(raw.sections)
     }
+
+    /// Runs a button/form action declared by one of this plugin's panels.
+    /// Section mutations come back declaratively, so the host never renders
+    /// plugin HTML.
+    pub async fn action(
+        &self,
+        panel_id: &str,
+        action_id: &str,
+        values: Option<serde_json::Value>,
+    ) -> anyhow::Result<PanelActionResponse> {
+        anyhow::ensure!(self.declares_panel(panel_id), "面板不存在");
+        anyhow::ensure!(
+            !action_id.trim().is_empty() && action_id.len() <= 64,
+            "无效的动作 id"
+        );
+        let mut request = serde_json::json!({ "panelId": panel_id, "actionId": action_id });
+        if let Some(values) = values {
+            validate_action_values(&values)?;
+            request["values"] = values;
+        }
+        let input = request.to_string();
+        anyhow::ensure!(input.len() <= MAX_INPUT_BYTES, "动作输入过大");
+        let mut plugin = self.plugin.lock().await;
+        let output: Vec<u8> = plugin
+            .call("action", input.as_bytes())
+            .context("panel plugin action call failed")?;
+        anyhow::ensure!(output.len() <= MAX_PANEL_TEXT_BYTES, "动作返回的内容过大");
+        let response: PanelActionResponse =
+            serde_json::from_slice(&output).context("动作返回了无效 JSON")?;
+        if let Some(sections) = &response.sections {
+            validate_sections(sections)?;
+        }
+        if let Some(notice) = &response.notice {
+            anyhow::ensure!(notice.len() <= 4096, "动作提示过长");
+        }
+        Ok(response)
+    }
+}
+
+/// Action values are untrusted form data: scalars only, bounded total size.
+fn validate_action_values(values: &serde_json::Value) -> anyhow::Result<()> {
+    let object = values
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("动作参数必须是对象"))?;
+    anyhow::ensure!(object.len() <= 64, "动作参数过多");
+    let mut total = 0usize;
+    for (key, value) in object {
+        anyhow::ensure!(!key.is_empty() && key.len() <= 64, "动作参数名过长");
+        match value {
+            serde_json::Value::String(text) => total += text.len(),
+            serde_json::Value::Number(_) | serde_json::Value::Bool(_) | serde_json::Value::Null => {}
+            _ => anyhow::bail!("动作参数只支持字符串、数字或布尔值"),
+        }
+    }
+    anyhow::ensure!(total <= 64 * 1024, "动作参数字符串总量过大");
+    Ok(())
 }
 
 /// The extensions a loaded plugin provides. `parser` is `None` for
@@ -256,6 +485,37 @@ pub struct LoadedPlugin {
     pub service: Option<Arc<dyn TranslateService>>,
     pub parser: Option<LoadedParser>,
     pub panel: Option<LoadedPanel>,
+    pub middleware: Option<LoadedMiddleware>,
+}
+
+/// A plugin applied after the primary translation service, sharing the
+/// `translate` export contract: `{"raw": 译文, "targetLang": ...}` → `{"result"}`.
+#[derive(Clone)]
+pub struct LoadedMiddleware {
+    pub info: PluginInfo,
+    plugin: Arc<Mutex<extism::Plugin>>,
+}
+
+impl LoadedMiddleware {
+    pub async fn apply(&self, translated: &str, target_lang: &str) -> anyhow::Result<String> {
+        anyhow::ensure!(
+            translated.len() <= MAX_INPUT_BYTES,
+            "术语中间层输入超过 1 MiB 上限"
+        );
+        let input =
+            serde_json::json!({ "raw": translated, "targetLang": target_lang }).to_string();
+        let mut plugin = self.plugin.lock().await;
+        let output: Vec<u8> = plugin
+            .call("translate", input.as_bytes())
+            .context("middleware translate call failed")?;
+        anyhow::ensure!(output.len() <= MAX_OUTPUT_BYTES, "middleware output is too large");
+        let value: serde_json::Value = serde_json::from_slice(&output)?;
+        value
+            .get("result")
+            .and_then(|v| v.as_str())
+            .map(|result| result.to_string())
+            .ok_or_else(|| anyhow::anyhow!("middleware returned no 'result' field"))
+    }
 }
 
 impl LoadedParser {
@@ -585,6 +845,7 @@ pub struct PluginHost {
     pub services: Vec<Arc<dyn TranslateService>>,
     pub parsers: Vec<LoadedParser>,
     pub panels: Vec<LoadedPanel>,
+    pub middlewares: Vec<LoadedMiddleware>,
     docs: DocContext,
 }
 
@@ -599,6 +860,7 @@ impl PluginHost {
             services: Vec::new(),
             parsers: Vec::new(),
             panels: Vec::new(),
+            middlewares: Vec::new(),
             docs,
         };
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -632,6 +894,9 @@ impl PluginHost {
                     if let Some(panel) = loaded.panel {
                         host.panels.push(panel);
                     }
+                    if let Some(middleware) = loaded.middleware {
+                        host.middlewares.push(middleware);
+                    }
                     host.plugins.push(loaded.info);
                 }
                 Err(err) => {
@@ -651,7 +916,13 @@ impl PluginHost {
         if manifest.enabled {
             instantiate_plugin(dir, &manifest, info, docs.clone())
         } else {
-            Ok(LoadedPlugin { info, service: None, parser: None, panel: None })
+            Ok(LoadedPlugin {
+                info,
+                service: None,
+                parser: None,
+                panel: None,
+                middleware: None,
+            })
         }
     }
 
@@ -869,7 +1140,7 @@ fn validate_manifest(manifest: &PluginManifest) -> anyhow::Result<()> {
         anyhow::bail!("invalid wasm entry (must be a plain file name): {}", manifest.entry);
     }
     match manifest.kind {
-        PluginKind::Translate | PluginKind::Panel | PluginKind::Parser => {}
+        PluginKind::Translate | PluginKind::Panel | PluginKind::Parser | PluginKind::Middleware => {}
         PluginKind::Other => anyhow::bail!("该插件类型尚未开放"),
     }
     if manifest.permissions.http.len() > MAX_HTTP_HOSTS {
@@ -957,6 +1228,14 @@ fn validate_manifest(manifest: &PluginManifest) -> anyhow::Result<()> {
         }
         validate_sections(&panel.sections)?;
     }
+    let interactive = manifest
+        .contributes
+        .panels
+        .iter()
+        .any(|panel| panel.sections.iter().any(PanelSection::is_interactive));
+    if interactive && manifest.api_version < 3 {
+        anyhow::bail!("interactive panel sections require apiVersion 3");
+    }
     Ok(())
 }
 
@@ -965,22 +1244,125 @@ fn validate_sections(sections: &[PanelSection]) -> anyhow::Result<()> {
         anyhow::bail!("panel content is too large");
     }
     for section in sections {
-        let (text_len, lengths, count): (Option<usize>, Vec<usize>, usize) = match section {
-            PanelSection::Paragraph { text } => (Some(text.len()), vec![], 1),
-            PanelSection::List { items } => {
-                (None, items.iter().map(String::len).collect(), items.len())
-            }
-            PanelSection::KeyValue { items } => (
-                None,
-                items.iter().flat_map(|item| [item.key.len(), item.value.len()]).collect(),
-                items.len(),
-            ),
+        let budget = if matches!(section, PanelSection::Form { .. }) {
+            32 * 1024
+        } else {
+            16 * 1024
         };
-        if text_len.is_some_and(|len| len > 16 * 1024)
-            || lengths.iter().any(|len| *len > 4 * 1024)
-            || count > MAX_PANEL_ITEMS
-        {
+        if section.text_len() > budget {
             anyhow::bail!("panel content is too large");
+        }
+        match section {
+            PanelSection::Paragraph { .. } => {}
+            PanelSection::List { items } => {
+                if items.len() > MAX_PANEL_ITEMS
+                    || items.iter().any(|item| item.len() > 4 * 1024)
+                {
+                    anyhow::bail!("panel content is too large");
+                }
+            }
+            PanelSection::KeyValue { items } => {
+                if items.len() > MAX_PANEL_ITEMS
+                    || items
+                        .iter()
+                        .any(|item| item.key.len() > 4 * 1024 || item.value.len() > 4 * 1024)
+                {
+                    anyhow::bail!("panel content is too large");
+                }
+            }
+            PanelSection::Actions { items } => validate_actions(items)?,
+            PanelSection::Form { id, submit_label, fields } => {
+                validate_form(id, submit_label, fields)?
+            }
+            PanelSection::Chart { labels, series, .. } => validate_chart(labels, series)?,
+        }
+    }
+    Ok(())
+}
+
+fn valid_control_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn validate_actions(items: &[PanelActionItem]) -> anyhow::Result<()> {
+    if items.is_empty() || items.len() > 8 {
+        anyhow::bail!("actions must contain between 1 and 8 buttons");
+    }
+    let mut seen = std::collections::HashSet::new();
+    for item in items {
+        if !valid_control_id(&item.id) {
+            anyhow::bail!("invalid action id (use letters, digits, '-' or '_')");
+        }
+        if !seen.insert(item.id.as_str()) {
+            anyhow::bail!("duplicate action id: {}", item.id);
+        }
+        let label = item.label.trim();
+        if label.is_empty() || label.len() > 64 {
+            anyhow::bail!("invalid action label");
+        }
+    }
+    Ok(())
+}
+
+fn validate_form(id: &str, submit_label: &str, fields: &[PanelFormField]) -> anyhow::Result<()> {
+    if !valid_control_id(id) || submit_label.len() > 64 {
+        anyhow::bail!("invalid form id or submit label");
+    }
+    if fields.is_empty() || fields.len() > 12 {
+        anyhow::bail!("a form must declare between 1 and 12 fields");
+    }
+    let mut seen = std::collections::HashSet::new();
+    for field in fields {
+        if !valid_control_id(&field.id) || !seen.insert(field.id.as_str()) {
+            anyhow::bail!("invalid or duplicate form field id: {}", field.id);
+        }
+        let label = field.label.trim();
+        if label.is_empty() || label.len() > 80 || field.placeholder.len() > 200 {
+            anyhow::bail!("invalid form field label or placeholder");
+        }
+        if field.kind == PanelFieldKind::Select {
+            if field.options.is_empty() || field.options.len() > 32 {
+                anyhow::bail!("a select field must declare between 1 and 32 options");
+            }
+            let mut values = std::collections::HashSet::new();
+            for option in &field.options {
+                if option.value.is_empty()
+                    || option.value.len() > 200
+                    || option.label.len() > 80
+                    || !values.insert(option.value.as_str())
+                {
+                    anyhow::bail!("invalid or duplicate select option");
+                }
+            }
+        } else if !field.options.is_empty() {
+            anyhow::bail!("only select fields may declare options");
+        }
+        if let (Some(min), Some(max)) = (field.min, field.max) {
+            if !min.is_finite() || !max.is_finite() || min > max {
+                anyhow::bail!("invalid number range");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_chart(labels: &[String], series: &[PanelChartSeries]) -> anyhow::Result<()> {
+    if labels.is_empty() || labels.len() > 64 || labels.iter().any(|label| label.len() > 120) {
+        anyhow::bail!("a chart must have between 1 and 64 labels");
+    }
+    if series.is_empty() || series.len() > 4 {
+        anyhow::bail!("a chart must have between 1 and 4 series");
+    }
+    for entry in series {
+        if entry.name.len() > 80 {
+            anyhow::bail!("chart series name is too long");
+        }
+        if entry.values.len() != labels.len() || entry.values.iter().any(|value| !value.is_finite()) {
+            anyhow::bail!("chart series must provide one finite value per label");
         }
     }
     Ok(())
@@ -1018,7 +1400,9 @@ fn validate_http_host(host: &str) -> anyhow::Result<()> {
 
 fn validate_exports(plugin: &extism::Plugin, manifest: &PluginManifest) -> anyhow::Result<()> {
     match manifest.kind {
-        PluginKind::Translate if !plugin.function_exists("translate") => {
+        PluginKind::Translate | PluginKind::Middleware
+            if !plugin.function_exists("translate") =>
+        {
             anyhow::bail!("plugin does not export a 'translate' function")
         }
         PluginKind::Parser if !plugin.function_exists("extract") => {
@@ -1030,6 +1414,14 @@ fn validate_exports(plugin: &extism::Plugin, manifest: &PluginManifest) -> anyho
         && !plugin.function_exists("panel")
     {
         anyhow::bail!("dynamic panels require a 'panel' export");
+    }
+    let interactive = manifest
+        .contributes
+        .panels
+        .iter()
+        .any(|panel| panel.sections.iter().any(PanelSection::is_interactive));
+    if interactive && !plugin.function_exists("action") {
+        anyhow::bail!("interactive panels require an 'action' export");
     }
     Ok(())
 }
@@ -1044,13 +1436,7 @@ impl PluginManifest {
                     + panel
                         .sections
                         .iter()
-                        .map(|section| match section {
-                            PanelSection::Paragraph { text } => text.len(),
-                            PanelSection::List { items } => items.iter().map(String::len).sum(),
-                            PanelSection::KeyValue { items } => {
-                                items.iter().map(|item| item.key.len() + item.value.len()).sum()
-                            }
-                        })
+                        .map(PanelSection::text_len)
                         .sum::<usize>()
             })
             .sum::<usize>()
@@ -1123,8 +1509,9 @@ fn instantiate_plugin(
     let (plugin, parse) = build_plugin(&manifest.name, dir, manifest, wasm, docs)?;
     validate_exports(&plugin, manifest)?;
     let plugin = Arc::new(Mutex::new(plugin));
-    let dynamic = manifest.contributes.panels.iter().any(|panel| panel.dynamic);
-    let panel = dynamic.then(|| LoadedPanel {
+    // Interactive actions (buttons/forms) also need the live plugin handle,
+    // even for panels whose sections are mostly static.
+    let panel = (!manifest.contributes.panels.is_empty()).then(|| LoadedPanel {
         info: info.clone(),
         plugin: plugin.clone(),
     });
@@ -1138,6 +1525,7 @@ fn instantiate_plugin(
             })),
             parser: None,
             panel,
+            middleware: None,
         }),
         PluginKind::Parser => Ok(LoadedPlugin {
             info: info.clone(),
@@ -1149,8 +1537,25 @@ fn instantiate_plugin(
                 parse,
             }),
             panel,
+            middleware: None,
         }),
-        _ => Ok(LoadedPlugin { info, service: None, parser: None, panel }),
+        PluginKind::Middleware => Ok(LoadedPlugin {
+            info: info.clone(),
+            service: None,
+            parser: None,
+            panel,
+            middleware: Some(LoadedMiddleware {
+                info,
+                plugin,
+            }),
+        }),
+        _ => Ok(LoadedPlugin {
+            info,
+            service: None,
+            parser: None,
+            panel,
+            middleware: None,
+        }),
     }
 }
 
@@ -1385,6 +1790,216 @@ mod tests {
         );
     }
 
+    #[test]
+    fn middleware_plugins_stay_out_of_the_service_list() {
+        let tmp = TempDir::new("middleware-list");
+        let zip_path = tmp.path().join("pkg.zip");
+        let manifest =
+            r#"{"name":"术语中间层","version":"0.1.0","entry":"x.wasm","kind":"middleware"}"#;
+        write_zip(
+            &zip_path,
+            &[
+                ("plugin.json", manifest.as_bytes()),
+                ("x.wasm", MINIMAL_WASM),
+            ],
+        );
+        let plugins_dir = tmp.path().join("plugins");
+        PluginHost::install_zip(&zip_path, &plugins_dir).unwrap();
+        let host = PluginHost::load_dir(&plugins_dir);
+        assert!(
+            host.services.is_empty(),
+            "middleware must not register as a translation service"
+        );
+        assert_eq!(host.middlewares.len(), 1);
+        assert_eq!(host.middlewares[0].info.kind, PluginKind::Middleware);
+    }
+
+    #[tokio::test]
+    async fn middleware_rewrites_a_translation_result() {
+        let json = r#"{"result":"校正后译文"}"#;
+        let stores: String = json
+            .bytes()
+            .enumerate()
+            .map(|(i, byte)| {
+                format!("(call $store_u8 (i64.add (local.get $p) (i64.const {i})) (i32.const {byte}))")
+            })
+            .collect();
+        let source = format!(
+            r#"(module
+                (import "extism:host/env" "alloc" (func $alloc (param i64) (result i64)))
+                (import "extism:host/env" "store_u8" (func $store_u8 (param i64 i32)))
+                (import "extism:host/env" "output_set" (func $output_set (param i64 i64)))
+                (func (export "translate")
+                    (local $p i64)
+                    (local.set $p (call $alloc (i64.const {len})))
+                    {stores}
+                    (call $output_set (local.get $p) (i64.const {len}))
+                )
+            )"#,
+            len = json.len()
+        );
+        let wasm = wat::parse_str(source).unwrap();
+        let tmp = TempDir::new("middleware-apply");
+        let zip_path = tmp.path().join("pkg.zip");
+        let manifest = r#"{"name":"术语中间层","version":"0.1.0","entry":"x.wasm","kind":"middleware","apiVersion":2}"#;
+        write_zip(
+            &zip_path,
+            &[("plugin.json", manifest.as_bytes()), ("x.wasm", &wasm)],
+        );
+        let plugins_dir = tmp.path().join("plugins");
+        let info = PluginHost::install_zip(&zip_path, &plugins_dir).unwrap();
+        assert_eq!(info.kind, PluginKind::Middleware);
+        let loaded =
+            PluginHost::load_plugin(&plugins_dir.join(&info.name), empty_doc_context()).unwrap();
+        assert!(loaded.service.is_none());
+        let middleware = loaded.middleware.expect("middleware loaded");
+        assert_eq!(
+            middleware.apply("原始译文", "zh-CN").await.unwrap(),
+            "校正后译文"
+        );
+    }
+
+    #[test]
+    fn interactive_panel_sections_validate() {
+        let section: PanelSection = serde_json::from_value(serde_json::json!({
+            "type": "actions",
+            "items": [{ "id": "refresh", "label": "刷新", "tone": "primary" }]
+        }))
+        .unwrap();
+        validate_sections(&[section]).unwrap();
+
+        let form: PanelSection = serde_json::from_value(serde_json::json!({
+            "type": "form", "id": "settings", "submitLabel": "保存",
+            "fields": [
+                { "id": "name", "label": "名称" },
+                { "id": "count", "label": "数量", "kind": "number", "min": 0, "max": 10 },
+                { "id": "mode", "label": "模式", "kind": "select", "options": [{ "value": "a", "label": "A" }] },
+                { "id": "enabled", "label": "启用", "kind": "checkbox" }
+            ]
+        }))
+        .unwrap();
+        validate_sections(&[form]).unwrap();
+
+        let chart: PanelSection = serde_json::from_value(serde_json::json!({
+            "type": "chart", "kind": "bar", "labels": ["A", "B"],
+            "series": [{ "name": "数量", "values": [1, 2] }]
+        }))
+        .unwrap();
+        validate_sections(&[chart]).unwrap();
+    }
+
+    #[test]
+    fn interactive_sections_reject_bad_shapes() {
+        let bad = |value: serde_json::Value| -> PanelSection {
+            serde_json::from_value(value).unwrap()
+        };
+        let duplicate_actions = bad(serde_json::json!({
+            "type": "actions",
+            "items": [{ "id": "a", "label": "A" }, { "id": "a", "label": "B" }]
+        }));
+        assert!(validate_sections(&[duplicate_actions]).is_err());
+
+        let select_without_options = bad(serde_json::json!({
+            "type": "form", "id": "f",
+            "fields": [{ "id": "x", "label": "X", "kind": "select" }]
+        }));
+        assert!(validate_sections(&[select_without_options]).is_err());
+
+        let chart_mismatch = bad(serde_json::json!({
+            "type": "chart", "kind": "line", "labels": ["A", "B"],
+            "series": [{ "name": "s", "values": [1] }]
+        }));
+        assert!(validate_sections(&[chart_mismatch]).is_err());
+    }
+
+    #[test]
+    fn interactive_sections_require_api_version_3() {
+        let manifest: PluginManifest = serde_json::from_value(serde_json::json!({
+            "name": "交互面板", "version": "0.1.0", "entry": "x.wasm", "kind": "panel",
+            "apiVersion": 2,
+            "contributes": { "panels": [{
+                "id": "main", "title": "面板",
+                "sections": [{ "type": "actions", "items": [{ "id": "go", "label": "执行" }] }]
+            }] }
+        }))
+        .unwrap();
+        let error = validate_manifest(&manifest).unwrap_err();
+        assert!(error.to_string().contains("apiVersion 3"));
+    }
+
+    #[test]
+    fn action_values_reject_nested_and_oversized_data() {
+        assert!(validate_action_values(&serde_json::json!({ "name": "ok", "n": 1, "flag": true })).is_ok());
+        assert!(validate_action_values(&serde_json::json!({ "nested": { "a": 1 } })).is_err());
+        assert!(validate_action_values(&serde_json::json!({ "list": [1, 2] })).is_err());
+        let huge = "x".repeat(64 * 1024 + 1);
+        assert!(validate_action_values(&serde_json::json!({ "text": huge })).is_err());
+    }
+
+    #[test]
+    fn interactive_panels_need_the_action_export() {
+        let tmp = TempDir::new("action-export");
+        let zip_path = tmp.path().join("pkg.zip");
+        let manifest = r#"{"name":"缺导出","version":"0.1.0","entry":"x.wasm","kind":"panel","apiVersion":3,"contributes":{"panels":[{"id":"main","title":"面板","sections":[{"type":"actions","items":[{"id":"go","label":"执行"}]}]}]}}"#;
+        write_zip(
+            &zip_path,
+            &[("plugin.json", manifest.as_bytes()), ("x.wasm", MINIMAL_WASM)],
+        );
+        let error = PluginHost::install_zip(&zip_path, &tmp.path().join("plugins")).unwrap_err();
+        assert!(error.to_string().contains("action"));
+    }
+
+    #[tokio::test]
+    async fn panel_actions_return_declarative_sections() {
+        let json = r#"{"notice":"已保存","sections":[{"type":"paragraph","text":"完成"}]}"#;
+        let stores: String = json
+            .bytes()
+            .enumerate()
+            .map(|(i, byte)| {
+                format!("(call $store_u8 (i64.add (local.get $p) (i64.const {i})) (i32.const {byte}))")
+            })
+            .collect();
+        let source = format!(
+            r#"(module
+                (import "extism:host/env" "alloc" (func $alloc (param i64) (result i64)))
+                (import "extism:host/env" "store_u8" (func $store_u8 (param i64 i32)))
+                (import "extism:host/env" "output_set" (func $output_set (param i64 i64)))
+                (func (export "panel")
+                    (local $p i64)
+                    (local.set $p (call $alloc (i64.const {len})))
+                    {stores}
+                    (call $output_set (local.get $p) (i64.const {len}))
+                )
+                (func (export "action")
+                    (local $p i64)
+                    (local.set $p (call $alloc (i64.const {len})))
+                    {stores}
+                    (call $output_set (local.get $p) (i64.const {len}))
+                )
+            )"#,
+            len = json.len()
+        );
+        let wasm = wat::parse_str(source).unwrap();
+        let tmp = TempDir::new("panel-action-e2e");
+        let zip_path = tmp.path().join("pkg.zip");
+        let manifest = r#"{"name":"交互面板","version":"0.1.0","entry":"x.wasm","kind":"panel","apiVersion":3,"contributes":{"panels":[{"id":"main","title":"面板","dynamic":true}]}}"#;
+        write_zip(
+            &zip_path,
+            &[("plugin.json", manifest.as_bytes()), ("x.wasm", &wasm)],
+        );
+        let plugins_dir = tmp.path().join("plugins");
+        let info = PluginHost::install_zip(&zip_path, &plugins_dir).unwrap();
+        let loaded =
+            PluginHost::load_plugin(&plugins_dir.join(&info.name), empty_doc_context()).unwrap();
+        let panel = loaded.panel.expect("panel loaded");
+        let response = panel
+            .action("main", "save", Some(serde_json::json!({ "name": "x" })))
+            .await
+            .unwrap();
+        assert_eq!(response.notice.as_deref(), Some("已保存"));
+        assert_eq!(response.sections.unwrap().len(), 1);
+    }
+
     const EMPTY_WASM: &[u8] = &[
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version
     ];
@@ -1466,7 +2081,7 @@ mod tests {
             ))
             .unwrap()
         };
-        assert!(validate_manifest(&base(r#","apiVersion":3"#)).is_err());
+        assert!(validate_manifest(&base(r#","apiVersion":4"#)).is_err());
         assert!(validate_manifest(&base(r#","apiVersion":0"#)).is_err());
         assert!(validate_manifest(&base(r#","kind":"theme""#)).is_err());
         for host in ["*", "localhost", "127.0.0.1", "10.0.0.8", "192.168.1.2", "172.16.3.4"] {
@@ -1515,33 +2130,40 @@ mod tests {
     }
 
     #[test]
-    fn bundled_example_plugin_still_installs_and_registers_translate() {
+    fn bundled_example_plugin_installs_as_middleware() {
         let zip = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/example-translate.zip");
         assert!(zip.is_file(), "bundled example plugin is missing: {}", zip.display());
         let tmp = TempDir::new("bundled-example");
         let plugins_dir = tmp.path().join("plugins");
         let info = PluginHost::install_zip(&zip, &plugins_dir).unwrap();
-        assert_eq!(info.kind, PluginKind::Translate);
+        assert_eq!(info.kind, PluginKind::Middleware);
+        let host = PluginHost::load_dir(&plugins_dir);
+        assert!(
+            host.services.is_empty(),
+            "the terminology middleware must not be listed as a translation service"
+        );
+        assert_eq!(host.middlewares.len(), 1);
         let loaded =
             PluginHost::load_plugin(&plugins_dir.join(&info.name), empty_doc_context()).unwrap();
-        assert!(loaded.service.is_some(), "legacy translate plugin must keep working");
+        assert!(loaded.middleware.is_some());
+        assert!(loaded.service.is_none());
         assert!(loaded.parser.is_none());
     }
 
     #[tokio::test]
-    async fn bundled_example_plugin_still_translates_under_the_new_limits() {
+    async fn bundled_example_plugin_rewrites_translated_text() {
         let zip = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/example-translate.zip");
-        let tmp = TempDir::new("bundled-translate");
+        let tmp = TempDir::new("bundled-middleware");
         let plugins_dir = tmp.path().join("plugins");
         let info = PluginHost::install_zip(&zip, &plugins_dir).unwrap();
         let loaded =
             PluginHost::load_plugin(&plugins_dir.join(&info.name), empty_doc_context()).unwrap();
-        let service = loaded.service.unwrap();
-        let result = service
-            .translate("The annealing process refines the grain structure.", "en", "zh-CN")
+        let middleware = loaded.middleware.unwrap();
+        let result = middleware
+            .apply("The annealing process refines the grain structure.", "zh-CN")
             .await
             .unwrap();
-        assert!(result.contains("退火"), "unexpected translation: {result}");
+        assert!(result.contains("退火"), "unexpected rewrite: {result}");
     }
 
     fn parser_manifest(extensions: &[&str]) -> String {

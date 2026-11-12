@@ -7,9 +7,9 @@
 
 | 键 | 值 |
 | --- | --- |
-| `docVersion` | `3.0.0` |
-| `contractVersion` | `2` |
-| `hostApiVersion` | `2`（`plugin.json.apiVersion` 允许 `1..=2`） |
+| `docVersion` | `3.1.0` |
+| `contractVersion` | `3` |
+| `hostApiVersion` | `3`（`plugin.json.apiVersion` 允许 `1..=3`） |
 | `runtime` | Extism 1.41 / Wasmtime 49 / Tauri 2 |
 | `updatedAt` | `2026-11-12` |
 | `machineContract` | [§14](#14-机器可读契约json) |
@@ -33,6 +33,8 @@
 6. 任何未在 §14 声明的字段、枚举值或接口都属于非法调用，应返回错误而不是猜测。
 7. 错误不是结构化对象：`EXPORT`/`HOST_FN` 抛出 Extism 错误，`IPC` 返回 rejected promise（`string`）。
    生成代码时只透传错误消息，不要假设存在 `code` 字段。
+8. 交互面板（`actions` / `form` 节）需要 `action` 导出与 `apiVersion >= 3`；`action` 的输入是
+   `{"panelId","actionId","values"?}`，输出是 `{"sections"?, "notice"?}`，**不是** HTML。
 
 ---
 
@@ -211,8 +213,8 @@ my-plugin.zip
 | `description` | string | 否 | `""` | 自由文本，显示在插件卡片 | `"材料术语替换"` |
 | `entry` | string | 是 | — | 纯文件名；非空；不含 `/`、`\`、`..`、`:` | `"materials_terms.wasm"` |
 | `enabled` | boolean | 否 | `true` | 导入后是否立即启用 | `true` |
-| `apiVersion` | integer | 否 | `1` | 仅允许 `1..=2` | `2` |
-| `kind` | string | 否 | `"translate"` | 枚举：`translate` / `panel` / `parser` | `"translate"` |
+| `apiVersion` | integer | 否 | `1` | 仅允许 `1..=3`（交互节需 `3`） | `3` |
+| `kind` | string | 否 | `"translate"` | 枚举：`translate` / `panel` / `parser` / `middleware` | `"translate"` |
 | `permissions` | object | 否 | 见 §4.2 | 见 §4.2 | 见示例 |
 | `contributes` | object | 否 | `{}` | 见 §4.3、§4.4 | 见示例 |
 
@@ -262,10 +264,14 @@ Section 约束：
 | `paragraph` | `text` | ≤16 KiB |
 | `list` | `items` | ≤200 项，每项 ≤4 KiB |
 | `keyValue` | `items` | ≤200 项，`key`/`value` 各 ≤4 KiB |
+| `actions` | `items` | 1–8 个按钮；`id` 1–64 字节 `[A-Za-z0-9_-]` 且同节唯一；`label` ≤64 字节；`tone` ∈ `default`/`primary`/`danger`；`disabled` 可选 |
+| `form` | `id`、`submitLabel`、`fields` | `id` 同控件规则；`submitLabel` ≤64 字节；1–12 个字段，`id` 唯一；`label` ≤80，`placeholder` ≤200；`kind` ∈ `text`/`textarea`/`number`/`select`/`checkbox`；`select` 1–32 个选项（`value` ≤200、`label` ≤80）；`number` 可带 `min`/`max` |
+| `chart` | `kind`、`labels`、`series` | `kind` ∈ `bar`/`line`/`pie`；1–64 个标签（各 ≤120 字节）；1–4 条 `series`，`values` 数量与 `labels` 一致且为有限数字 |
 
 - 整个 `contributes` 的文本总量（描述、section 文本、parser label/extensions）≤64 KiB。
 - 一个面板最多 8 个；`kind: "panel"` 至少贡献 1 个面板。
-- 静态内容只以文本节点渲染，不执行 HTML/脚本。
+- 静态内容只以固定元素渲染，不执行 HTML/脚本；按钮与表单只会回调 `PLUGIN.ACTION`。
+- `actions`/`form` 属于交互节：要求 `apiVersion >= 3` 且插件导出 `action`；否则导入失败。
 - `dynamic: true` 的 `sections` 作为初始占位或回退内容；实际内容由 `PLUGIN.PANEL` 返回。
 
 ### 4.4 `contributes.parsers[]`
@@ -286,7 +292,7 @@ Section 约束：
 
 | 规则 | 结果 |
 | --- | --- |
-| `kind` 非 `translate`/`panel`/`parser` | 拒绝 |
+| `kind` 非 `translate`/`panel`/`parser`/`middleware` | 拒绝 |
 | `apiVersion` 为 0 或 >2 | 拒绝 |
 | 动态面板但无 `panel` 导出 | 拒绝 |
 | `panel` 类型但无面板 | 拒绝 |
@@ -316,7 +322,7 @@ Section 约束：
 | `method` | `EXPORT` |
 | `path` | `wasm://plugin/translate` |
 | 方向 | 宿主 → 插件 |
-| 适用 `kind` | `translate` |
+| 适用 `kind` | `translate`（直接作为翻译服务）；`middleware`（对每个译文结果做后处理） |
 | 必需导出 | `translate` |
 | 权限 | 无 |
 | 请求 Schema | `TranslateRequest`（§7.1） |
@@ -333,6 +339,7 @@ Section 约束：
 
 - 宿主**不传**源语言；插件需要时自行检测。
 - 响应必须是单个 JSON 对象，`result` 为字符串；额外字段忽略。
+- `kind: "middleware"` 的插件**不会**出现在翻译服务列表中；启用后，宿主把任意服务返回的译文作为 `raw` 传入同一个 `translate` 导出，并用返回的 `result` 覆盖译文（例如术语校正）。中间层失败时保留原译文，不影响主服务。
 - 返回非 JSON、缺少 `result` 或类型错误都会使本次翻译失败。
 
 完整示例：
@@ -535,6 +542,91 @@ pub fn panel(input: String) -> FnResult<String> {
   "permissions": { "storage": true },
   "contributes": {
     "panels": [{ "id": "stats", "title": "统计", "dynamic": true }]
+  }
+}
+```
+
+### 5.4 `PLUGIN.ACTION`
+
+| 元数据 | 值 |
+| --- | --- |
+| `interfaceId` | `PLUGIN.ACTION` |
+| `method` | `EXPORT` |
+| `path` | `wasm://plugin/action` |
+| 方向 | 宿主 → 插件 |
+| 适用 `kind` | 任意贡献了交互面板（`actions` / `form` 节）的插件 |
+| 必需导出 | `action`（声明交互节时） |
+| 权限 | 无（插件内部调用其他能力时按各自权限校验） |
+| 请求 Schema | `PanelActionRequest`（§7.4） |
+| 响应 Schema | `PanelActionResponse`（§7.4） |
+| 限制 | 输入 ≤1 MiB；输出 ≤64 KiB；单次调用 10 秒 / fuel 2e9 |
+| 错误 | `E_EXPORT_ACTION_MISSING`、`E_PANEL_UNKNOWN`、`E_ACTION_VALUES`、`E_PLUGIN_CALL`、`E_PANEL_JSON`、`E_PANEL_OUTPUT` |
+
+请求字段：
+
+| 字段 | 类型 | 必填 | 校验规则 | 示例 |
+| --- | --- | --- | --- | --- |
+| `panelId` | string | 是 | 必须是该插件声明过的面板 `id` | `"tools"` |
+| `actionId` | string | 是 | 按钮 `id` 或表单 `id`；1–64 字节 | `"refresh"` |
+| `values` | object? | 否 | 表单值；键 ≤64 个；值只能是字符串/数字/布尔/null；字符串总量 ≤64 KiB；嵌套对象/数组被拒绝 | `{"name":"x","size":12}` |
+
+响应字段：
+
+| 字段 | 类型 | 必填 | 校验规则 | 示例 |
+| --- | --- | --- | --- | --- |
+| `sections` | array<PanelSection>? | 否 | ≤32 项；校验规则同 §4.3；返回时整体替换当前面板内容 | 见示例 |
+| `notice` | string? | 否 | ≤4 KiB；作为成功提示显示 | `"已保存"` |
+
+- 按钮点击：`{"panelId":"tools","actionId":"refresh"}`。
+- 表单提交：`actionId` 等于 `form.id`，并携带 `values`。
+- 未返回 `sections` 时：动态面板由宿主重新调用 `PLUGIN.PANEL` 刷新；静态面板只显示 `notice`。
+- 失败或结构非法时，宿主保留当前面板内容并显示错误；`sections` 只以固定元素渲染，不执行 HTML。
+
+完整示例（无状态按钮）：
+
+```rust
+use extism_pdk::*;
+use serde_json::{json, Value};
+
+#[plugin_fn]
+pub fn action(input: String) -> FnResult<String> {
+    let request: Value = serde_json::from_str(&input)?;
+    if request["panelId"] != "tools" {
+        return Err(Error::msg("unknown panel"));
+    }
+    let text = match request["actionId"].as_str().unwrap_or("") {
+        "refresh" => "已刷新".to_string(),
+        "save" => format!(
+            "保存：{}",
+            request["values"]["name"].as_str().unwrap_or("")
+        ),
+        _ => return Err(Error::msg("unknown action")),
+    };
+    Ok(json!({
+        "notice": text,
+        "sections": [
+            { "type": "paragraph", "text": "按钮触发的动作完成" },
+            { "type": "actions", "items": [{ "id": "refresh", "label": "刷新" }] }
+        ]
+    })
+    .to_string())
+}
+```
+
+对应的静态面板声明（`apiVersion: 3`）：
+
+```json
+{
+  "kind": "panel",
+  "apiVersion": 3,
+  "contributes": {
+    "panels": [{
+      "id": "tools",
+      "title": "工具",
+      "sections": [
+        { "type": "actions", "items": [{ "id": "refresh", "label": "刷新", "tone": "primary" }] }
+      ]
+    }]
   }
 }
 ```
@@ -887,7 +979,36 @@ const sections = await invoke<PanelSection[]>("plugin_panel_content", {
 });
 ```
 
-### 6.15 `IPC.PARSE_DOCUMENT`
+### 6.15 `IPC.PLUGIN_PANEL_ACTION`
+
+| 元数据 | 值 |
+| --- | --- |
+| `interfaceId` | `IPC.PLUGIN_PANEL_ACTION` |
+| `method` | `IPC` |
+| `path` | `tauri://invoke/plugin_panel_action` |
+| 参数 | `PluginPanelActionArgs` |
+| 返回 | `PanelActionResponse`（§7.4） |
+| 错误 | `E_PLUGIN_NOT_ENABLED`、`E_PANEL_UNKNOWN`、`E_ACTION_VALUES`、`E_PANEL_*` |
+
+参数：
+
+| 字段 | 类型 | 必填 | 说明 | 示例 |
+| --- | --- | --- | --- | --- |
+| `name` | string | 是 | 插件名 | `"stats-plugin"` |
+| `panelId` | string | 是 | 面板 `id` | `"tools"` |
+| `actionId` | string | 是 | 按钮或表单 `id` | `"refresh"` |
+| `values` | object \| null | 否 | 表单值 | `{ "name": "x" }` |
+
+```ts
+const response = await invoke<PanelActionResponse>("plugin_panel_action", {
+  name: "stats-plugin",
+  panelId: "tools",
+  actionId: "refresh",
+  values: null,
+});
+```
+
+### 6.16 `IPC.PARSE_DOCUMENT`
 
 | 元数据 | 值 |
 | --- | --- |
@@ -908,7 +1029,7 @@ const sections = await invoke<PanelSection[]>("plugin_panel_content", {
 const parsed = await invoke<ParsedDocument>("parse_document", { id: docId });
 ```
 
-### 6.16 `IPC.OPEN_DOCUMENT`
+### 6.17 `IPC.OPEN_DOCUMENT`
 
 | 元数据 | 值 |
 | --- | --- |
@@ -933,7 +1054,7 @@ const parsed = await invoke<ParsedDocument>("parse_document", { id: docId });
 
 命中自定义格式时，返回的 `DocumentInfo.kind` 为 `plugin:<extension>`。
 
-### 6.17 `IPC.SET_PLUGIN_DOCUMENT`
+### 6.18 `IPC.SET_PLUGIN_DOCUMENT`
 
 | 元数据 | 值 |
 | --- | --- |
@@ -1018,12 +1139,31 @@ await invoke("set_plugin_document", { document: null });
 { "sections": [{ "type": "paragraph", "text": "已解析 12 篇" }] }
 ```
 
-### 7.4 `PanelSection`
+### 7.4 `PanelSection` 与交互
 
 ```json
+// 文本类
 { "type": "paragraph", "text": "说明" }
 { "type": "list", "items": ["A", "B"] }
 { "type": "keyValue", "items": [{ "key": "版本", "value": "1.0" }] }
+
+// 按钮：点击后调用 PLUGIN.ACTION（actionId = id）
+{ "type": "actions", "items": [
+  { "id": "refresh", "label": "刷新", "tone": "primary" },
+  { "id": "clear", "label": "清空", "tone": "danger", "disabled": false }
+]}
+
+// 表单：提交后调用 PLUGIN.ACTION（actionId = id，values = 字段值）
+{ "type": "form", "id": "prefs", "submitLabel": "保存", "fields": [
+  { "id": "name", "label": "名称", "kind": "text", "placeholder": "可选", "required": true },
+  { "id": "size", "label": "字号", "kind": "number", "value": 12, "min": 8, "max": 32 },
+  { "id": "mode", "label": "模式", "kind": "select", "value": "a", "options": [{ "value": "a", "label": "A" }] },
+  { "id": "enabled", "label": "启用", "kind": "checkbox", "value": true }
+]}
+
+// 图表：最多 4 条系列，values 与 labels 一一对应
+{ "type": "chart", "kind": "bar", "title": "数量",
+  "labels": ["A", "B"], "series": [{ "name": "数量", "values": [3, 5] }] }
 ```
 
 | `type` | 字段 | 约束 |
@@ -1031,6 +1171,29 @@ await invoke("set_plugin_document", { document: null });
 | `paragraph` | `text: string` | ≤16 KiB |
 | `list` | `items: string[]` | ≤200 项，每项 ≤4 KiB |
 | `keyValue` | `items: {key: string, value: string}[]` | ≤200 项，各字段 ≤4 KiB |
+| `actions` | `items: PanelActionItem[]` | 1–8 个；`id` 唯一且 1–64 `[A-Za-z0-9_-]`；`label` ≤64；`tone` ∈ `default`/`primary`/`danger` |
+| `form` | `id`、`submitLabel?`、`fields: PanelFormField[]` | 1–12 个字段；字段 `id` 唯一；`label` ≤80；`placeholder` ≤200；`select` 1–32 个选项 |
+| `chart` | `kind`、`title?`、`labels: string[]`、`series: {name, values: number[]}[]` | 1–64 个标签；1–4 条系列；`values` 与 `labels` 等长且为有限数字 |
+
+- 表单字段 `kind` 枚举：`text` / `textarea` / `number` / `select` / `checkbox`；`select` 必须带 `options`，其他类型不允许 `options`。
+- `actions` 与 `form` 属于交互节：插件必须声明 `apiVersion >= 3` 并导出 `action`。
+
+**动作请求/响应**（对应 `PLUGIN.ACTION`，见 §5.4）：
+
+```json
+// PanelActionRequest（按钮）
+{ "panelId": "tools", "actionId": "refresh" }
+
+// PanelActionRequest（表单提交）
+{ "panelId": "prefs", "actionId": "prefs", "values": { "name": "x", "size": 12, "enabled": true } }
+
+// PanelActionResponse
+{ "notice": "已保存", "sections": [{ "type": "paragraph", "text": "完成" }] }
+```
+
+- `values` 的键为字段 `id`；数字字段提交 `number`（空值提交 `null`），复选框提交布尔值。
+- `sections` 省略时：动态面板会重新拉取 `PLUGIN.PANEL`，静态面板只显示 `notice`。
+- 这些节类型同样适用于 `PLUGIN.PANEL` 的返回值与静态 `sections`。
 
 ### 7.5 文件流
 
@@ -1094,7 +1257,7 @@ await invoke("set_plugin_document", { document: null });
 | `description` | string | 简介 |
 | `enabled` | boolean | 当前启用状态 |
 | `apiVersion` | integer | 清单 API 版本 |
-| `kind` | `translate \| panel \| parser \| other` | 插件类型 |
+| `kind` | `translate \| panel \| parser \| middleware \| other` | 插件类型 |
 | `permissions` | `PluginPermissions` | 见 §4.2 |
 | `contributes` | object | `{panels: PanelContribution[], parsers: ParserContribution[]}` |
 | `conflict` | string? | 启动时因扩展名冲突被跳过的原因；无冲突时省略 |
@@ -1153,10 +1316,10 @@ await invoke("set_plugin_document", { document: null });
 | `E_MANIFEST_NAME` | 插件名非法 | `plugin name ...` | 见 §4.1 |
 | `E_MANIFEST_VERSION` | 版本为空 | `plugin version must not be empty` | 填版本号 |
 | `E_MANIFEST_ENTRY` | 入口名非法 | `invalid wasm entry` | 使用纯文件名 |
-| `E_MANIFEST_API` | API 版本不支持 | `plugin apiVersion ... is not supported` | 改为 `1..=2` |
-| `E_MANIFEST_KIND` | 类型未开放 | `该插件类型尚未开放` | 使用三类之一 |
+| `E_MANIFEST_API` | API 版本不支持 | `plugin apiVersion ... is not supported` / `interactive panel sections require apiVersion 3` | 改为 `1..=3`，交互节用 `3` |
+| `E_MANIFEST_KIND` | 类型未开放 | `该插件类型尚未开放` | 使用 `translate`/`panel`/`parser`/`middleware` 之一 |
 | `E_MANIFEST_PERMISSION` | HTTP 主机非法 | `too many HTTP hosts` / `invalid HTTP host` / `wildcard-only` / `must not point at the local machine` | 收紧白名单 |
-| `E_MANIFEST_PANEL` | 面板字段越界 | `too many contributed panels` / `invalid panel` / `panel content is too large` | 见 §4.3 |
+| `E_MANIFEST_PANEL` | 面板字段越界 | `too many contributed panels` / `invalid panel` / `panel content is too large` / `actions must contain` / `invalid form field` / `a chart must` | 见 §4.3 |
 | `E_MANIFEST_PARSER` | 解析声明越界 | `invalid parser id` / `invalid extension` / `duplicate parser extension` / `handled by a built-in reader` / `invalid magic` | 见 §4.4 |
 | `E_INSTALL_CONFLICT` | 扩展名被其他启用插件占用 | `扩展名冲突：` | 停用/卸载冲突插件 |
 | `E_INSTALL_PROBE` | 探针实例化失败 | `failed to instantiate wasm` | 检查 wasm 与限额 |
@@ -1168,11 +1331,13 @@ await invoke("set_plugin_document", { document: null });
 
 | Error ID | 触发 | 消息模式 | 可重试 |
 | --- | --- | --- | --- |
-| `E_PLUGIN_CALL` | 导出调用失败/陷阱 | `plugin translate call failed` / `parser plugin extract call failed` / `panel plugin call failed` | 否 |
+| `E_PLUGIN_CALL` | 导出调用失败/陷阱 | `plugin translate call failed` / `parser plugin extract call failed` / `panel plugin call failed` / `panel plugin action call failed` | 否 |
 | `E_PLUGIN_TRAP` | 超时、fuel 耗尽、内存超限 | 上述消息内含 `timeout` / `fuel` / `memory` 等运行时原因 | 否 |
-| `E_PLUGIN_JSON` | 返回不是 JSON | `解析插件返回了无效 JSON` / `动态面板返回了无效 JSON` / serde 错误 | 否 |
-| `E_PLUGIN_OUTPUT` | 返回过大 | `解析插件输出过大` / `plugin output is too large` / `动态面板返回的内容过大` | 否 |
+| `E_PLUGIN_JSON` | 返回不是 JSON | `解析插件返回了无效 JSON` / `动态面板返回了无效 JSON` / `动作返回了无效 JSON` / serde 错误 | 否 |
+| `E_PLUGIN_OUTPUT` | 返回过大 | `解析插件输出过大` / `plugin output is too large` / `动态面板返回的内容过大` / `动作返回的内容过大` | 否 |
 | `E_PLUGIN_RESULT_MISSING` | 翻译返回结构错误 | `plugin returned no 'result' field` | 否 |
+| `E_EXPORT_ACTION_MISSING` | 交互面板缺少导出 | `interactive panels require an 'action' export` | 否，导出 `action` |
+| `E_ACTION_VALUES` | 动作参数不合规 | `动作参数必须是对象` / `动作参数只支持字符串、数字或布尔值` / `动作参数过多` / `动作参数字符串总量过大` | 否，修正表单值 |
 | `E_PARSER_CONTRACT` | 块/文本/图片不合规 | `未知块类型` / `文本过多` / `只有 figure 块可以携带图片` / `figure 块必须携带图片` / `图片必须是 data:image` / `图片数据不是有效的 base64` / `图片总大小过大` | 否 |
 | `E_PERMISSION_DENIED` | 未声明能力 | `did not request the ... permission` | 否 |
 | `E_STORAGE_KEY` | 键非法 | `invalid storage key` | 否 |
@@ -1252,8 +1417,14 @@ await invoke("set_plugin_document", { document: null });
 | list/keyValue 条目 | 200 |
 | paragraph 文本 | 16 KiB |
 | 条目文本 | 4 KiB |
+| actions 按钮 | 8 |
+| form 字段 | 12 |
+| select 选项 | 32 |
+| chart 标签 / 系列 | 64 / 4 |
 | 声明式内容总量 | 64 KiB |
 | 动态输出 | 64 KiB |
+| 动作输入 | 1 MiB（`values` 键 ≤64、字符串总量 ≤64 KiB） |
+| 动作输出 | 64 KiB（`notice` ≤4 KiB） |
 
 ## 10. 最佳实践
 
@@ -1285,10 +1456,19 @@ await invoke("set_plugin_document", { document: null });
 
 - 面板生成应快速、只读、可重复；避免每次刷新都发起网络请求。
 - 需要缓存时使用 `sr_storage_*`，并处理配额错误。
-- 只返回文本 section；不要尝试输出 HTML、脚本或图片。
+- 只返回声明式 section；不要尝试输出 HTML、脚本或图片。
 - `panelId` 必须与清单中的动态面板一一对应。
 
-### 10.5 构建与发布
+### 10.5 交互节（`actions` / `form` / `chart`）
+
+- 声明 `apiVersion: 3` 并导出 `action`；按钮 `id` 与表单 `id` 在 `action` 里区分处理。
+- 动作应快速返回（默认 10 秒）；耗时操作放到动态面板刷新或后台流程里。
+- 返回 `sections` 会整体替换当前面板，适合“点击后更新内容”；只返回 `notice` 适合纯提示。
+- 表单值只信任宿主传回的标量；不要假设字段一定存在或类型正确。
+- 图表系列 `values` 必须与 `labels` 等长；数据量大时先在插件内聚合。
+- 仍在沙箱内运行：交互节同样不允许 HTML/脚本，只能调用已声明的能力。
+
+### 10.6 构建与发布
 
 - `opt-level = "s"` + `lto = true` 控制体积；WASM 必须 ≤16 MiB。
 - 打包前确认 `plugin.json.entry` 与实际文件名一致。
@@ -1304,6 +1484,9 @@ await invoke("set_plugin_document", { document: null });
 | 导入报缺少 `translate` | 未导出或函数名不是 `translate` | 使用 `#[plugin_fn] pub fn translate(...)` |
 | 导入报缺少 `extract` | `kind:"parser"` 但未导出 `extract` | 导出 `extract` 或改 `kind` |
 | 导入报缺少 `panel` | 有 `dynamic: true` 面板但未导出 `panel` | 导出 `panel` 或关闭 `dynamic` |
+| 导入报缺少 `action` | 使用了 `actions`/`form` 但未导出 `action` 或 `apiVersion < 3` | 导出 `action` 并声明 `apiVersion: 3` |
+| 点击按钮无反应/报错 | `actionId` 未处理、表单值类型不符或动作返回非法 JSON | 对照 §5.4 校验请求与响应 |
+| 表单提交后字段丢失 | 返回的 `sections` 替换了整块面板，未包含表单 | 需要保留表单时在响应里重新返回表单节 |
 | 自定义文件打不开 | 插件未启用/扩展名拼写不一致/与其他插件冲突 | 检查启用状态、扩展名与 `conflict` 字段 |
 | 打开对话框看不到目标文件 | 只有声明 `magic` 时才出现“所有文件” | 为 parser 声明 `magic`，或改用声明过的扩展名 |
 | `magic` 不生效 | 签名不是偶数长度 hex / 超过 32 字节 / 不在偏移 0 | 修正签名；确认文件头字节 |
@@ -1329,7 +1512,7 @@ await invoke("set_plugin_document", { document: null });
 | 数据外泄 | HTTP 默认全禁；白名单最多 32 个主机；拒绝本机/私网字面量 |
 | 资源耗尽 | fuel、内存页、10 秒超时、WASM 16 MiB、输出/图片/存储配额 |
 | 扩展名劫持 | 内置格式不可覆盖；同一扩展名仅允许一个启用插件；冲突安装/启用被拒绝 |
-| 恶意 UI 注入 | 静态/动态面板、README 只渲染文本或受限 Markdown，不执行 HTML/脚本 |
+| 恶意 UI 注入 | 静态/动态面板、README 只渲染固定元素或受限 Markdown；按钮/表单只能回调 `action`，不执行 HTML/脚本 |
 | 供应链替换 | 安装预览展示 SHA-256 与版本变化；同名升级原地替换并重新注册 |
 | 权限升级 | 预览单独列出“新增权限/新增格式”，用户确认后才安装 |
 | 插件卸载残留 | 卸载删除整个插件目录，并注销服务、解析器与动态面板 |
@@ -1400,10 +1583,10 @@ zip -j my-plugin.zip plugin.json \
 
 ```json
 {
-  "contractVersion": 2,
-  "docVersion": "3.0.0",
-  "hostApiVersion": 2,
-  "apiVersionRange": [1, 2],
+  "contractVersion": 3,
+  "docVersion": "3.1.0",
+  "hostApiVersion": 3,
+  "apiVersionRange": [1, 3],
   "updatedAt": "2026-11-12",
   "runtime": "Extism 1.41 / Wasmtime 49 / Tauri 2",
   "naming": {
@@ -1423,7 +1606,7 @@ zip -j my-plugin.zip plugin.json \
     "IPC": { "pathFormat": "tauri://invoke/<command>", "direction": "frontend->host", "transport": "tauri-invoke" },
     "MANIFEST": { "pathFormat": "zip://plugin.json", "direction": "host", "transport": "zip-read" }
   },
-  "kinds": ["translate", "panel", "parser"],
+  "kinds": ["translate", "panel", "parser", "middleware"],
   "builtinExtensions": ["pdf", "epub", "docx", "md", "markdown", "txt", "text"],
   "interfaces": [
     {
@@ -1433,7 +1616,7 @@ zip -j my-plugin.zip plugin.json \
       "direction": "host->plugin",
       "export": "translate",
       "requiredExport": true,
-      "kinds": ["translate"],
+      "kinds": ["translate", "middleware"],
       "permissions": [],
       "request": { "schema": "TranslateRequest", "contentType": "application/json", "encoding": "utf-8" },
       "response": { "schema": "TranslateResponse", "contentType": "application/json", "encoding": "utf-8" },
@@ -1463,7 +1646,7 @@ zip -j my-plugin.zip plugin.json \
       "direction": "host->plugin",
       "export": "panel",
       "requiredExport": true,
-      "kinds": ["translate", "panel", "parser"],
+      "kinds": ["translate", "panel", "parser", "middleware"],
       "requires": "at least one contributes.panels[] with dynamic=true",
       "permissions": [],
       "request": { "schema": "PanelRequest", "contentType": "application/json", "encoding": "utf-8" },
@@ -1471,6 +1654,22 @@ zip -j my-plugin.zip plugin.json \
       "limits": { "outputBytes": 65536, "sections": 32, "timeoutSeconds": 10, "fuel": 2000000000 },
       "errors": ["E_EXPORT_PANEL_MISSING", "E_PANEL_UNKNOWN", "E_PANEL_OUTPUT", "E_PANEL_JSON", "E_PERMISSION_DENIED"],
       "docSection": "5.3"
+    },
+    {
+      "interfaceId": "PLUGIN.ACTION",
+      "method": "EXPORT",
+      "path": "wasm://plugin/action",
+      "direction": "host->plugin",
+      "export": "action",
+      "requiredExport": true,
+      "kinds": ["translate", "panel", "parser", "middleware"],
+      "requires": "at least one contributed panel with actions/form sections (apiVersion >= 3)",
+      "permissions": [],
+      "request": { "schema": "PanelActionRequest", "contentType": "application/json", "encoding": "utf-8" },
+      "response": { "schema": "PanelActionResponse", "contentType": "application/json", "encoding": "utf-8" },
+      "limits": { "inputBytes": 1048576, "outputBytes": 65536, "noticeBytes": 4096, "timeoutSeconds": 10, "fuel": 2000000000 },
+      "errors": ["E_EXPORT_ACTION_MISSING", "E_PANEL_UNKNOWN", "E_ACTION_VALUES", "E_PLUGIN_CALL", "E_PANEL_JSON", "E_PANEL_OUTPUT"],
+      "docSection": "5.4"
     },
     {
       "interfaceId": "HOST.SR_DOC_READ",
@@ -1582,7 +1781,7 @@ zip -j my-plugin.zip plugin.json \
       "direction": "frontend->host",
       "request": { "schema": "ImportPluginArgs" },
       "response": { "schema": "PluginInfo" },
-      "errors": ["E_INSTALL_READ", "E_INSTALL_ZIP", "E_INSTALL_CONFLICT", "E_INSTALL_PROBE", "E_MANIFEST_JSON", "E_MANIFEST_NAME", "E_MANIFEST_VERSION", "E_MANIFEST_ENTRY", "E_MANIFEST_API", "E_MANIFEST_KIND", "E_MANIFEST_PERMISSION", "E_MANIFEST_PANEL", "E_MANIFEST_PARSER", "E_EXPORT_TRANSLATE_MISSING", "E_EXPORT_EXTRACT_MISSING", "E_EXPORT_PANEL_MISSING"],
+      "errors": ["E_INSTALL_READ", "E_INSTALL_ZIP", "E_INSTALL_CONFLICT", "E_INSTALL_PROBE", "E_MANIFEST_JSON", "E_MANIFEST_NAME", "E_MANIFEST_VERSION", "E_MANIFEST_ENTRY", "E_MANIFEST_API", "E_MANIFEST_KIND", "E_MANIFEST_PERMISSION", "E_MANIFEST_PANEL", "E_MANIFEST_PARSER", "E_EXPORT_TRANSLATE_MISSING", "E_EXPORT_EXTRACT_MISSING", "E_EXPORT_PANEL_MISSING", "E_EXPORT_ACTION_MISSING"],
       "docSection": "6.10"
     },
     {
@@ -1592,7 +1791,7 @@ zip -j my-plugin.zip plugin.json \
       "direction": "frontend->host",
       "request": { "schema": "SetPluginEnabledArgs" },
       "response": { "schema": "PluginInfo", "isArray": true },
-      "errors": ["E_PLUGIN_ENABLE_CONFLICT", "E_MANIFEST_JSON", "E_EXPORT_TRANSLATE_MISSING", "E_EXPORT_EXTRACT_MISSING", "E_EXPORT_PANEL_MISSING", "E_INSTALL_PROBE"],
+      "errors": ["E_PLUGIN_ENABLE_CONFLICT", "E_MANIFEST_JSON", "E_EXPORT_TRANSLATE_MISSING", "E_EXPORT_EXTRACT_MISSING", "E_EXPORT_PANEL_MISSING", "E_EXPORT_ACTION_MISSING", "E_INSTALL_PROBE"],
       "docSection": "6.11"
     },
     {
@@ -1626,6 +1825,16 @@ zip -j my-plugin.zip plugin.json \
       "docSection": "6.14"
     },
     {
+      "interfaceId": "IPC.PLUGIN_PANEL_ACTION",
+      "method": "IPC",
+      "path": "tauri://invoke/plugin_panel_action",
+      "direction": "frontend->host",
+      "request": { "schema": "PluginPanelActionArgs" },
+      "response": { "schema": "PanelActionResponse" },
+      "errors": ["E_PLUGIN_NOT_ENABLED", "E_PANEL_UNKNOWN", "E_ACTION_VALUES", "E_PLUGIN_CALL", "E_PANEL_JSON", "E_PANEL_OUTPUT"],
+      "docSection": "6.15"
+    },
+    {
       "interfaceId": "IPC.PARSE_DOCUMENT",
       "method": "IPC",
       "path": "tauri://invoke/parse_document",
@@ -1633,7 +1842,7 @@ zip -j my-plugin.zip plugin.json \
       "request": { "schema": "ParseDocumentArgs" },
       "response": { "schema": "ParsedDocument" },
       "errors": ["E_DOC_NOT_CUSTOM", "E_PARSER_NOT_FOUND", "E_PLUGIN_CALL", "E_PARSER_CONTRACT"],
-      "docSection": "6.15"
+      "docSection": "6.16"
     },
     {
       "interfaceId": "IPC.OPEN_DOCUMENT",
@@ -1644,7 +1853,7 @@ zip -j my-plugin.zip plugin.json \
       "response": { "schema": "DocumentInfo" },
       "matchOrder": ["builtin-extension", "enabled-parser-extension", "enabled-parser-magic"],
       "errors": ["E_DOC_UNSUPPORTED", "E_PLUGIN_NAME"],
-      "docSection": "6.16"
+      "docSection": "6.17"
     },
     {
       "interfaceId": "IPC.SET_PLUGIN_DOCUMENT",
@@ -1655,7 +1864,7 @@ zip -j my-plugin.zip plugin.json \
       "response": { "type": "null" },
       "limits": { "snapshotBlocks": 20000, "snapshotTextBytes": 8388608 },
       "errors": ["E_DOC_TOO_LARGE", "E_DOC_CONTEXT"],
-      "docSection": "6.17"
+      "docSection": "6.18"
     }
   ],
   "schemas": {
@@ -1714,8 +1923,33 @@ zip -j my-plugin.zip plugin.json \
       "oneOf": [
         { "type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": { "type": { "const": "paragraph" }, "text": { "type": "string", "maxBytes": 16384 } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "items"], "properties": { "type": { "const": "list" }, "items": { "type": "array", "maxItems": 200, "items": { "type": "string", "maxBytes": 4096 } } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "items"], "properties": { "type": { "const": "keyValue" }, "items": { "type": "array", "maxItems": 200, "items": { "type": "object", "additionalProperties": false, "required": ["key", "value"], "properties": { "key": { "type": "string", "maxBytes": 4096 }, "value": { "type": "string", "maxBytes": 4096 } } } } } }
+        { "type": "object", "additionalProperties": false, "required": ["type", "items"], "properties": { "type": { "const": "keyValue" }, "items": { "type": "array", "maxItems": 200, "items": { "type": "object", "additionalProperties": false, "required": ["key", "value"], "properties": { "key": { "type": "string", "maxBytes": 4096 }, "value": { "type": "string", "maxBytes": 4096 } } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "items"], "properties": { "type": { "const": "actions" }, "items": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "object", "additionalProperties": false, "required": ["id", "label"], "properties": { "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }, "label": { "type": "string", "maxBytes": 64 }, "tone": { "type": "string", "enum": ["default", "primary", "danger"], "default": "default" }, "disabled": { "type": "boolean", "default": false } } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "id", "fields"], "properties": { "type": { "const": "form" }, "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }, "submitLabel": { "type": "string", "maxBytes": 64 }, "fields": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "type": "object", "additionalProperties": false, "required": ["id", "label"], "properties": { "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }, "label": { "type": "string", "maxBytes": 80 }, "kind": { "type": "string", "enum": ["text", "textarea", "number", "select", "checkbox"], "default": "text" }, "placeholder": { "type": "string", "maxBytes": 200 }, "value": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] }, "options": { "type": "array", "maxItems": 32, "items": { "type": "object", "additionalProperties": false, "required": ["value", "label"], "properties": { "value": { "type": "string", "maxBytes": 200 }, "label": { "type": "string", "maxBytes": 80 } } } }, "required": { "type": "boolean", "default": false }, "min": { "type": "number" }, "max": { "type": "number" } } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "kind", "labels", "series"], "properties": { "type": { "const": "chart" }, "kind": { "type": "string", "enum": ["bar", "line", "pie"] }, "title": { "type": "string", "maxBytes": 120 }, "labels": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "maxBytes": 120 } }, "series": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "type": "object", "additionalProperties": false, "required": ["name", "values"], "properties": { "name": { "type": "string", "maxBytes": 80 }, "values": { "type": "array", "items": { "type": "number" } } } } } } }
+      ],
+      "constraints": [
+        "kind=select requires options; other field kinds must not declare options",
+        "chart series.values length must equal labels length",
+        "interactive sections (actions/form) require apiVersion >= 3 and an 'action' export"
       ]
+    },
+    "PanelActionRequest": {
+      "type": "object", "additionalProperties": false, "required": ["panelId", "actionId"],
+      "properties": {
+        "panelId": { "type": "string", "note": "must match a contributed panel id" },
+        "actionId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+        "values": { "type": "object", "maxProperties": 64, "additionalProperties": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }] } }
+      },
+      "constraints": ["total string bytes in values <= 65536", "serialized request <= 1048576 bytes"]
+    },
+    "PanelActionResponse": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "sections": { "type": "array", "maxItems": 32, "items": { "$ref": "#/schemas/PanelSection" } },
+        "notice": { "type": "string", "maxBytes": 4096 }
+      },
+      "constraints": ["serialized output <= 65536 bytes"]
     },
     "FileReadRequest": {
       "type": "object", "additionalProperties": false,
@@ -1804,15 +2038,17 @@ zip -j my-plugin.zip plugin.json \
         "description": { "type": "string", "default": "" },
         "entry": { "type": "string", "minLength": 1, "constraints": ["plain file name; no / \\ .. :"] },
         "enabled": { "type": "boolean", "default": true },
-        "apiVersion": { "type": "integer", "enum": [1, 2], "default": 1 },
-        "kind": { "type": "string", "enum": ["translate", "panel", "parser"], "default": "translate" },
+        "apiVersion": { "type": "integer", "enum": [1, 2, 3], "default": 1 },
+        "kind": { "type": "string", "enum": ["translate", "panel", "parser", "middleware"], "default": "translate" },
         "permissions": { "$ref": "#/schemas/PluginPermissions" },
         "contributes": { "type": "object", "additionalProperties": false, "properties": { "panels": { "type": "array", "maxItems": 8, "items": { "$ref": "#/schemas/PanelContribution" } }, "parsers": { "type": "array", "items": { "$ref": "#/schemas/ParserContribution" } } } }
       },
       "constraints": [
         "kind=translate requires 'translate' export",
+        "kind=middleware requires 'translate' export and is applied to translation results, never listed as a service",
         "kind=parser requires 'extract' export and >=1 parser; other kinds must not declare parsers",
         "kind=panel requires >=1 panel",
+        "interactive panel sections require apiVersion 3 and an 'action' export",
         "any dynamic=true panel requires 'panel' export",
         "total contributed text <= 65536 bytes",
         "extensions unique across all enabled plugins"
@@ -1826,7 +2062,7 @@ zip -j my-plugin.zip plugin.json \
         "description": { "type": "string" },
         "enabled": { "type": "boolean" },
         "apiVersion": { "type": "integer" },
-        "kind": { "type": "string", "enum": ["translate", "panel", "parser", "other"] },
+        "kind": { "type": "string", "enum": ["translate", "panel", "parser", "middleware", "other"] },
         "permissions": { "$ref": "#/schemas/PluginPermissions" },
         "contributes": { "type": "object", "properties": { "panels": { "type": "array", "items": { "$ref": "#/schemas/PanelContribution" } }, "parsers": { "type": "array", "items": { "$ref": "#/schemas/ParserContribution" } } } },
         "conflict": { "type": "string", "note": "host-set; omitted when no conflict" }
@@ -1863,6 +2099,7 @@ zip -j my-plugin.zip plugin.json \
     "RemovePluginArgs": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string" } } },
     "PluginReadmeArgs": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string" } } },
     "PluginPanelContentArgs": { "type": "object", "additionalProperties": false, "required": ["name", "panelId"], "properties": { "name": { "type": "string" }, "panelId": { "type": "string" } } },
+    "PluginPanelActionArgs": { "type": "object", "additionalProperties": false, "required": ["name", "panelId", "actionId"], "properties": { "name": { "type": "string" }, "panelId": { "type": "string" }, "actionId": { "type": "string" }, "values": { "oneOf": [{ "type": "object" }, { "type": "null" }] } } },
     "ParseDocumentArgs": { "type": "object", "additionalProperties": false, "required": ["id"], "properties": { "id": { "type": "string", "note": "library document id" } } },
     "OpenDocumentArgs": { "type": "object", "additionalProperties": false, "required": ["path"], "properties": { "path": { "type": "string", "note": "absolute file path" } } },
     "SetPluginDocumentArgs": { "type": "object", "additionalProperties": false, "required": ["document"], "properties": { "document": { "oneOf": [{ "$ref": "#/schemas/DocSnapshot" }, { "type": "null" }] } } }

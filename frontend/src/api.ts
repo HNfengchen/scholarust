@@ -8,7 +8,10 @@ import type {
   LibraryData,
   ModelStatus,
   Note,
+  OcrModelInfo,
+  PluginActionValues,
   PluginInfo,
+  PluginPanelActionResponse,
   PluginPanelSection,
   PluginPreview,
   ServiceInfo,
@@ -64,6 +67,27 @@ export function startModel(): Promise<ModelStatus> {
 
 export function stopModel(): Promise<void> {
   return invoke<void>("stop_model");
+}
+
+export function ocrStatus(): Promise<ModelStatus> {
+  return invoke<ModelStatus>("ocr_status");
+}
+
+export function startOcr(): Promise<ModelStatus> {
+  return invoke<ModelStatus>("start_ocr");
+}
+
+export function stopOcr(): Promise<ModelStatus> {
+  return invoke<ModelStatus>("stop_ocr");
+}
+
+export function ocrModelInfo(): Promise<OcrModelInfo> {
+  return invoke<OcrModelInfo>("ocr_model_info");
+}
+
+/** Sends one page image (base64 PNG) to the local OCR model. */
+export function ocrImage(png: string): Promise<string> {
+  return invoke<string>("ocr_image", { png });
 }
 
 export function layoutModelInfo(): Promise<LayoutModelInfo> {
@@ -155,6 +179,21 @@ export function pluginPanelContent(
   panelId: string,
 ): Promise<PluginPanelSection[]> {
   return invoke<PluginPanelSection[]>("plugin_panel_content", { name, panelId });
+}
+
+/** Runs a declarative button/form action and returns updated sections. */
+export function pluginPanelAction(
+  name: string,
+  panelId: string,
+  actionId: string,
+  values?: PluginActionValues,
+): Promise<PluginPanelActionResponse> {
+  return invoke<PluginPanelActionResponse>("plugin_panel_action", {
+    name,
+    panelId,
+    actionId,
+    values: values ?? null,
+  });
 }
 
 export function setPluginEnabled(name: string, enabled: boolean): Promise<PluginInfo[]> {

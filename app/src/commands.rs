@@ -1,8 +1,8 @@
 use crate::state::{AppState, Settings};
 use scholarust_core::{markdown, DocumentInfo, DocumentKind};
 use scholarust_plugin_host::{
-    claims_magic, DocSnapshot, LoadedParser, PanelSection, ParsedDocument, ParserContribution,
-    PluginHost, PluginInfo, PluginPreview, MAX_DOC_BLOCKS, MAX_DOC_TEXT_BYTES,
+    claims_magic, DocSnapshot, LoadedParser, PanelActionResponse, PanelSection, ParsedDocument,
+    ParserContribution, PluginHost, PluginInfo, PluginPreview, MAX_DOC_BLOCKS, MAX_DOC_TEXT_BYTES,
 };
 use scholarust_translate::{ServiceInfo, TranslateResult};
 use serde::{Deserialize, Serialize};
@@ -188,6 +188,32 @@ pub async fn set_settings(state: State<'_, AppState>, settings: Settings) -> Res
     Ok(())
 }
 
+/// Applies enabled middleware plugins (e.g. terminology cleanup) to results,
+/// keeping the primary service's text whenever a middleware fails.
+async fn apply_middlewares(
+    state: &AppState,
+    results: Vec<TranslateResult>,
+    target: &str,
+) -> Vec<TranslateResult> {
+    let middlewares = state.middlewares.lock().await.clone();
+    if middlewares.is_empty() {
+        return results;
+    }
+    let mut out = Vec::with_capacity(results.len());
+    for mut result in results {
+        if result.error.is_none() {
+            for middleware in &middlewares {
+                match middleware.apply(&result.result, target).await {
+                    Ok(rewritten) => result.result = rewritten,
+                    Err(err) => eprintln!("middleware {} failed: {err}", middleware.info.name),
+                }
+            }
+        }
+        out.push(result);
+    }
+    out
+}
+
 #[tauri::command]
 pub async fn translate_text(
     state: State<'_, AppState>,
@@ -199,12 +225,15 @@ pub async fn translate_text(
     let service = service.unwrap_or_else(|| settings.service.clone());
     let target = target.unwrap_or_else(|| settings.target_lang.clone());
     drop(settings);
-    Ok(state
+    let result = state
         .registry
         .read()
         .await
         .translate_one(text, Some(&service), &target)
-        .await)
+        .await;
+    Ok(apply_middlewares(state.inner(), vec![result], &target)
+        .await
+        .remove(0))
 }
 
 #[tauri::command]
@@ -218,12 +247,13 @@ pub async fn translate_paragraphs(
     let service = service.unwrap_or_else(|| settings.service.clone());
     let target = target.unwrap_or_else(|| settings.target_lang.clone());
     drop(settings);
-    Ok(state
+    let results = state
         .registry
         .read()
         .await
         .translate_paragraphs(paragraphs, Some(&service), &target)
-        .await)
+        .await;
+    Ok(apply_middlewares(state.inner(), results, &target).await)
 }
 
 #[tauri::command]
@@ -249,6 +279,7 @@ pub async fn import_plugin(
     state.registry.write().await.unregister(&service_id);
     state.parsers.lock().await.retain(|parser| parser.info.name != info.name);
     state.plugin_panels.lock().await.retain(|panel| panel.info.name != info.name);
+    state.middlewares.lock().await.retain(|middleware| middleware.info.name != info.name);
     if info.enabled {
         let loaded = PluginHost::load_plugin(
             &plugins_dir.join(&info.name),
@@ -263,6 +294,9 @@ pub async fn import_plugin(
         }
         if let Some(panel) = loaded.panel {
             state.plugin_panels.lock().await.push(panel);
+        }
+        if let Some(middleware) = loaded.middleware {
+            state.middlewares.lock().await.push(middleware);
         }
     } else {
         release_plugin_service(&state, &service_id).await?;
@@ -288,6 +322,30 @@ pub async fn plugin_panel_content(
     }
     .ok_or_else(|| format!("插件「{name}」未启用或没有动态面板"))?;
     panel.sections(&panel_id).await.map_err(err)
+}
+
+/// Runs a button/form action inside a plugin panel. The plugin answers with
+/// declarative sections, so the host never renders plugin HTML.
+#[tauri::command]
+pub async fn plugin_panel_action(
+    state: State<'_, AppState>,
+    name: String,
+    panel_id: String,
+    action_id: String,
+    values: Option<serde_json::Value>,
+) -> Result<PanelActionResponse, String> {
+    let panel = {
+        let panels = state.plugin_panels.lock().await;
+        panels
+            .iter()
+            .find(|panel| panel.info.name == name)
+            .cloned()
+    }
+    .ok_or_else(|| format!("插件「{name}」未启用"))?;
+    panel
+        .action(&panel_id, &action_id, values)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -327,11 +385,17 @@ pub async fn set_plugin_enabled(
             panels.retain(|existing| existing.info.name != panel.info.name);
             panels.push(panel);
         }
+        if let Some(middleware) = loaded.middleware {
+            let mut middlewares = state.middlewares.lock().await;
+            middlewares.retain(|existing| existing.info.name != middleware.info.name);
+            middlewares.push(middleware);
+        }
     } else {
         PluginHost::set_enabled(&plugins_dir, &name, false).map_err(err)?;
         state.registry.write().await.unregister(&service_id);
         state.parsers.lock().await.retain(|parser| parser.info.name != name);
         state.plugin_panels.lock().await.retain(|panel| panel.info.name != name);
+        state.middlewares.lock().await.retain(|middleware| middleware.info.name != name);
     }
     let snapshot = {
         let mut plugins = state.plugins.lock().await;
@@ -357,6 +421,7 @@ pub async fn remove_plugin(
     PluginHost::uninstall(&plugins_dir, &name).map_err(err)?;
     state.parsers.lock().await.retain(|parser| parser.info.name != name);
     state.plugin_panels.lock().await.retain(|panel| panel.info.name != name);
+    state.middlewares.lock().await.retain(|middleware| middleware.info.name != name);
     let snapshot = {
         let mut plugins = state.plugins.lock().await;
         plugins.retain(|p| p.name != name);
@@ -628,6 +693,40 @@ pub async fn start_model(state: State<'_, AppState>) -> Result<crate::model::Mod
 pub async fn stop_model(state: State<'_, AppState>) -> Result<crate::model::ModelStatus, String> {
     state.model.stop().await;
     Ok(state.model.status().await)
+}
+
+#[tauri::command]
+pub async fn ocr_status(state: State<'_, AppState>) -> Result<crate::model::OcrStatus, String> {
+    Ok(state.model.ocr_status().await)
+}
+
+#[tauri::command]
+pub async fn start_ocr(state: State<'_, AppState>) -> Result<crate::model::OcrStatus, String> {
+    state.model.ensure_ocr_started().await.map_err(err)?;
+    Ok(state.model.ocr_status().await)
+}
+
+#[tauri::command]
+pub async fn stop_ocr(state: State<'_, AppState>) -> Result<crate::model::OcrStatus, String> {
+    state.model.stop_ocr().await;
+    Ok(state.model.ocr_status().await)
+}
+
+/// Which OCR model pair was auto-discovered under `models/ocr`.
+#[tauri::command]
+pub async fn ocr_model_info(state: State<'_, AppState>) -> Result<crate::model::OcrModelInfo, String> {
+    Ok(state.model.ocr_model_info())
+}
+
+/// Runs OCR on one page image (base64 PNG) and returns the transcribed text.
+#[tauri::command]
+pub async fn ocr_image(state: State<'_, AppState>, png: String) -> Result<String, String> {
+    // A rendered A4 page at 200 DPI stays far below this; reject anything
+    // larger so a bad caller cannot exhaust memory through the IPC bridge.
+    if png.len() > 48_000_000 {
+        return Err("OCR 图片过大".into());
+    }
+    state.model.ocr_image(&png).await.map_err(err)
 }
 
 #[derive(Serialize)]

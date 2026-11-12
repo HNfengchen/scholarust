@@ -56,12 +56,21 @@ describe("Toolbar mode switch", () => {
     expect(reading.textContent).toContain("解析中");
     expect(reading.classList.contains("active")).toBe(true);
     expect(reading.classList.contains("parsing")).toBe(true);
-    expect(reading.disabled).toBe(true);
+    // Switching away must stay possible: the running extraction is aborted.
+    expect(reading.disabled).toBe(false);
   });
 
   it("disables the switch when no document is open", async () => {
     props.hasDocument = false;
     await render();
     for (const button of modeButtons()) expect(button.disabled).toBe(true);
+  });
+
+  it("keeps 原文 highlighted while the OCR panel drives region selection", async () => {
+    props.mode = "ocr";
+    await render();
+    expect(modeButtons()).toHaveLength(2);
+    expect(modeButtons()[0].classList.contains("active")).toBe(true);
+    expect(modeButtons()[1].classList.contains("active")).toBe(false);
   });
 });
